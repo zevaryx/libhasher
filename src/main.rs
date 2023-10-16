@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use colored::Colorize;
 use std::{
     fs::{self, File},
     io::{self, BufRead, BufWriter, Read, Write},
@@ -66,28 +67,28 @@ fn check(path: &Path, hasher: &mut dyn DynDigest) -> Result<CheckResult> {
                 &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
             {
                 total += 1;
-                print!("{}: ", filename);
+                print!("{}: ", filename.bright_cyan());
                 match hash_file(&Path::new(filename), hasher) {
                     Ok(result) => match result.hash {
                         Some(h) => {
                             if h.eq(hash) {
-                                print!("OK\n");
+                                print!("{}\n", "OK".bright_green());
                             } else if h.len() != hash.len() {
-                                print!("INVALID\n");
+                                print!("{}\n", "INVALID".bright_red());
                                 total -= 1;
                                 invalid += 1;
                             } else {
-                                print!("FAILED\n");
+                                print!("{}\n", "FAILED".bright_red());
                                 mismatch += 1;
                             }
                         }
                         None => {
-                            print!("READ_FAIL\n");
+                            print!("{}\n", "READ_FAIL".bright_red());
                             read_fail += 1;
                         }
                     },
                     Err(_) => {
-                        print!("HASH_FAIL\n");
+                        print!("{}\n", "HASH_FAIL".bright_red());
                         hash_fail += 1;
                     }
                 }
@@ -155,7 +156,7 @@ fn hash_root(root: &Path, hasher: &mut dyn DynDigest) -> Result<Vec<HashResult>>
                         None => String::from("Invalid hash result"),
                     },
                 };
-                println!("{}  {}", hash, result.filename);
+                println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
                 hash_results.push(result);
             }
         }
@@ -168,7 +169,7 @@ fn hash_root(root: &Path, hasher: &mut dyn DynDigest) -> Result<Vec<HashResult>>
                 None => String::from("Invalid hash result"),
             },
         };
-        println!("{}  {}", hash, result.filename);
+        println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
         hash_results.push(result);
     }
 
@@ -218,23 +219,32 @@ pub fn main() -> Result<()> {
                 }
                 if result.mismatch > 0 {
                     println!(
-                        "WARNING: {} computed checksum(s) did NOT match",
+                        "{}: {} computed checksum(s) did NOT match",
+                        "WARNING".bright_red(),
                         result.mismatch
                     );
                 }
                 if result.read_fail > 0 || result.hash_fail > 0 {
                     println!(
-                        "WARNING: Failed to check {} checksum(s)",
+                        "{}: Failed to check {} checksum(s)",
+                        "WARNING".bright_red(),
                         result.read_fail + result.hash_fail
                     );
                 }
                 if result.invalid > 0 {
-                    println!("WARNING: {} invalid checksum(s)", result.invalid);
+                    println!(
+                        "{}: {} invalid checksum(s)",
+                        "WARNING".bright_red(),
+                        result.invalid
+                    );
                 }
                 if (result.hash_fail + result.invalid + result.read_fail) as f64
                     > (result.total as f64 * 0.8)
                 {
-                    println!("WARNING: > 80% failures. Please check hash algorithm")
+                    println!(
+                        "{}: > 80% failures. Please check hash algorithm",
+                        "WARNING".bright_red()
+                    )
                 }
                 Ok(())
             }
