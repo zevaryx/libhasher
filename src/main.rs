@@ -12,17 +12,25 @@ use digest::DynDigest;
 static ALGOS: &'static [&str] = &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512"];
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
 struct Args {
-    #[arg(short, long, default_value_t = String::from("sha256"), help = "Must be one of: md5, sha1, sha256, sha512, sha3_256, sha3_512")]
+    #[arg(short, long, default_value_t = String::from("sha256"), help = "Default sha256. Must be one of: md5, sha1, sha256, sha512, sha3_256, sha3_512")]
     algorithm: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Optional. File to save hashsum to")]
     output: Option<PathBuf>,
 
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        help = "Switch to hashsum check mode. File must be a hashsum file"
+    )]
     check: bool,
 
+    #[arg(short, long, help = "Follow symlinks")]
+    symlinks: bool,
+
+    #[arg(help = "The file or folder to hash")]
     file: PathBuf,
 }
 
@@ -132,14 +140,14 @@ fn hash_file(path: &Path, hasher: &mut dyn DynDigest) -> Result<HashResult> {
     })
 }
 
-fn hash_root(root: &Path, hasher: &mut dyn DynDigest) -> Result<Vec<HashResult>> {
+fn hash_root(root: &Path, hasher: &mut dyn DynDigest, symlinks: bool) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
-    if root.is_dir() {
+    if root.is_dir() && (symlinks == true || !root.is_symlink()) {
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_dir() {
-                match hash_root(&path, hasher) {
+            if path.is_dir() && (symlinks == true || !path.is_symlink()) {
+                match hash_root(&path, hasher, symlinks) {
                     Ok(mut res) => hash_results.append(&mut res),
                     Err(e) => hash_results.push(HashResult {
                         filename: path.as_path().display().to_string(),
@@ -147,7 +155,7 @@ fn hash_root(root: &Path, hasher: &mut dyn DynDigest) -> Result<Vec<HashResult>>
                         error: Some(e.to_string()),
                     }),
                 };
-            } else {
+            } else if path.is_file() {
                 let result = hash_file(&path, hasher)?;
                 let hash = match &result.hash {
                     Some(h) => h.to_owned(),
@@ -160,7 +168,7 @@ fn hash_root(root: &Path, hasher: &mut dyn DynDigest) -> Result<Vec<HashResult>>
                 hash_results.push(result);
             }
         }
-    } else {
+    } else if root.is_file() {
         let result = hash_file(&root, hasher)?;
         let hash = match &result.hash {
             Some(h) => h.to_owned(),
@@ -251,7 +259,7 @@ pub fn main() -> Result<()> {
             Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
         }
     } else {
-        match hash_root(&args.file, &mut *hasher) {
+        match hash_root(&args.file, &mut *hasher, args.symlinks) {
             Ok(res) => {
                 match args.output {
                     Some(path) => write_results(&path, &res)?,
