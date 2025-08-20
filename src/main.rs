@@ -8,15 +8,17 @@ use std::{
 };
 
 use digest::DynDigest;
+mod blake;
 mod xxhash;
 
-static ALGOS: &'static [&str] = &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
+static ALGOS: &'static [&str] = &["blake2", "blake3", "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
 static XXH3: &'static [&str] = &["xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
+static BLAKE: &'static [&str] = &["blake2", "blake3"];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
 struct Args {
-    #[arg(short, long, default_value_t = String::from("xxh3_128"), help = "Must be one of: md5, sha1, sha256, sha512, sha3_256, sha3_512, xxh3_128, xxh3_64, xxh64, xxh32, fnv")]
+    #[arg(short, long, default_value_t = String::from("blake3"), help = "Must be one of: blake2, blake3, md5, sha1, sha256, sha512, sha3_256, sha3_512, xxh3_128, xxh3_64, xxh64, xxh32, fnv")]
     algorithm: String,
 
     #[arg(short, long, help = "Optional. File to save hashsum to")]
@@ -263,8 +265,59 @@ pub fn main() -> Result<()> {
                 Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
             }
         }
+    } else if BLAKE.contains(&args.algorithm.as_str()) {
+if args.check {
+            match blake::check(&args.file, &args.algorithm.as_str()) {
+                Ok(result) => {
+                    if result.total == 0 {
+                        println!("{}: no properly formatted lines found", args.file.display());
+                    }
+                    if result.mismatch > 0 {
+                        println!(
+                            "{}: {} computed checksum(s) did NOT match",
+                            "WARNING".bright_red(),
+                            result.mismatch
+                        );
+                    }
+                    if result.read_fail > 0 || result.hash_fail > 0 {
+                        println!(
+                            "{}: Failed to check {} checksum(s)",
+                            "WARNING".bright_red(),
+                            result.read_fail + result.hash_fail
+                        );
+                    }
+                    if result.invalid > 0 {
+                        println!(
+                            "{}: {} invalid checksum(s)",
+                            "WARNING".bright_red(),
+                            result.invalid
+                        );
+                    }
+                    if (result.hash_fail + result.invalid + result.read_fail) as f64
+                        > (result.total as f64 * 0.8)
+                    {
+                        println!(
+                            "{}: > 80% failures. Please check hash algorithm",
+                            "WARNING".bright_red()
+                        )
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
+            }
+        } else {
+            match blake::hash_root(&args.file, &args.algorithm.as_str(), args.symlinks) {
+                Ok(res) => {
+                    match args.output {
+                        Some(path) => write_results(&path, &res)?,
+                        None => (),
+                    };
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
+            }
+        }
     } else {
-
         let mut hasher: Box<dyn DynDigest> = match args.algorithm.as_str() {
             "md5" => Box::new(md5::Md5::default()),
             "sha1" => Box::new(sha1::Sha1::default()),
