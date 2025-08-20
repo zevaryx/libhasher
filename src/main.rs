@@ -8,13 +8,15 @@ use std::{
 };
 
 use digest::DynDigest;
+mod xxhash;
 
-static ALGOS: &'static [&str] = &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512"];
+static ALGOS: &'static [&str] = &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
+static XXH3: &'static [&str] = &["xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
 struct Args {
-    #[arg(short, long, default_value_t = String::from("sha256"), help = "Default sha256. Must be one of: md5, sha1, sha256, sha512, sha3_256, sha3_512")]
+    #[arg(short, long, default_value_t = String::from("xxh3_128"), help = "Must be one of: md5, sha1, sha256, sha512, sha3_256, sha3_512, xxh3_128, xxh3_64, xxh64, xxh32, fnv")]
     algorithm: String,
 
     #[arg(short, long, help = "Optional. File to save hashsum to")]
@@ -35,14 +37,14 @@ struct Args {
 }
 
 #[derive(Debug)]
-struct HashResult {
+pub struct HashResult {
     filename: String,
     hash: Option<String>,
     error: Option<String>,
 }
 
 #[derive(Debug)]
-struct CheckResult {
+pub struct CheckResult {
     total: u64,
     mismatch: u64,
     read_fail: u64,
@@ -50,7 +52,7 @@ struct CheckResult {
     invalid: u64,
 }
 
-fn bytes_to_hash(hash: &[u8]) -> String {
+pub fn bytes_to_hash(hash: &[u8]) -> String {
     let mut result = String::new();
 
     for byte in hash {
@@ -209,65 +211,120 @@ pub fn main() -> Result<()> {
         return Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm));
     };
 
-    let mut hasher: Box<dyn DynDigest> = match args.algorithm.as_str() {
-        "md5" => Box::new(md5::Md5::default()),
-        "sha1" => Box::new(sha1::Sha1::default()),
-        "sha256" => Box::new(sha2::Sha256::default()),
-        "sha512" => Box::new(sha2::Sha512::default()),
-        "sha3_256" => Box::new(sha3::Sha3_256::default()),
-        "sha3_512" => Box::new(sha3::Sha3_512::default()),
-        _ => panic!("Invalid hash, check failed"),
-    };
-
-    if args.check {
-        match check(&args.file, &mut *hasher) {
-            Ok(result) => {
-                if result.total == 0 {
-                    println!("{}: no properly formatted lines found", args.file.display());
+    if XXH3.contains(&args.algorithm.as_str()) {
+        if args.check {
+            match xxhash::check(&args.file, &args.algorithm.as_str()) {
+                Ok(result) => {
+                    if result.total == 0 {
+                        println!("{}: no properly formatted lines found", args.file.display());
+                    }
+                    if result.mismatch > 0 {
+                        println!(
+                            "{}: {} computed checksum(s) did NOT match",
+                            "WARNING".bright_red(),
+                            result.mismatch
+                        );
+                    }
+                    if result.read_fail > 0 || result.hash_fail > 0 {
+                        println!(
+                            "{}: Failed to check {} checksum(s)",
+                            "WARNING".bright_red(),
+                            result.read_fail + result.hash_fail
+                        );
+                    }
+                    if result.invalid > 0 {
+                        println!(
+                            "{}: {} invalid checksum(s)",
+                            "WARNING".bright_red(),
+                            result.invalid
+                        );
+                    }
+                    if (result.hash_fail + result.invalid + result.read_fail) as f64
+                        > (result.total as f64 * 0.8)
+                    {
+                        println!(
+                            "{}: > 80% failures. Please check hash algorithm",
+                            "WARNING".bright_red()
+                        )
+                    }
+                    Ok(())
                 }
-                if result.mismatch > 0 {
-                    println!(
-                        "{}: {} computed checksum(s) did NOT match",
-                        "WARNING".bright_red(),
-                        result.mismatch
-                    );
-                }
-                if result.read_fail > 0 || result.hash_fail > 0 {
-                    println!(
-                        "{}: Failed to check {} checksum(s)",
-                        "WARNING".bright_red(),
-                        result.read_fail + result.hash_fail
-                    );
-                }
-                if result.invalid > 0 {
-                    println!(
-                        "{}: {} invalid checksum(s)",
-                        "WARNING".bright_red(),
-                        result.invalid
-                    );
-                }
-                if (result.hash_fail + result.invalid + result.read_fail) as f64
-                    > (result.total as f64 * 0.8)
-                {
-                    println!(
-                        "{}: > 80% failures. Please check hash algorithm",
-                        "WARNING".bright_red()
-                    )
-                }
-                Ok(())
+                Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
-            Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
+        } else {
+            match xxhash::hash_root(&args.file, &args.algorithm.as_str(), args.symlinks) {
+                Ok(res) => {
+                    match args.output {
+                        Some(path) => write_results(&path, &res)?,
+                        None => (),
+                    };
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
+            }
         }
     } else {
-        match hash_root(&args.file, &mut *hasher, args.symlinks) {
-            Ok(res) => {
-                match args.output {
-                    Some(path) => write_results(&path, &res)?,
-                    None => (),
-                };
-                Ok(())
+
+        let mut hasher: Box<dyn DynDigest> = match args.algorithm.as_str() {
+            "md5" => Box::new(md5::Md5::default()),
+            "sha1" => Box::new(sha1::Sha1::default()),
+            "sha256" => Box::new(sha2::Sha256::default()),
+            "sha512" => Box::new(sha2::Sha512::default()),
+            "sha3_256" => Box::new(sha3::Sha3_256::default()),
+            "sha3_512" => Box::new(sha3::Sha3_512::default()),
+            _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
+        };
+
+        if args.check {
+            match check(&args.file, &mut *hasher) {
+                Ok(result) => {
+                    if result.total == 0 {
+                        println!("{}: no properly formatted lines found", args.file.display());
+                    }
+                    if result.mismatch > 0 {
+                        println!(
+                            "{}: {} computed checksum(s) did NOT match",
+                            "WARNING".bright_red(),
+                            result.mismatch
+                        );
+                    }
+                    if result.read_fail > 0 || result.hash_fail > 0 {
+                        println!(
+                            "{}: Failed to check {} checksum(s)",
+                            "WARNING".bright_red(),
+                            result.read_fail + result.hash_fail
+                        );
+                    }
+                    if result.invalid > 0 {
+                        println!(
+                            "{}: {} invalid checksum(s)",
+                            "WARNING".bright_red(),
+                            result.invalid
+                        );
+                    }
+                    if (result.hash_fail + result.invalid + result.read_fail) as f64
+                        > (result.total as f64 * 0.8)
+                    {
+                        println!(
+                            "{}: > 80% failures. Please check hash algorithm",
+                            "WARNING".bright_red()
+                        )
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
-            Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
+        } else {
+            match hash_root(&args.file, &mut *hasher, args.symlinks) {
+                Ok(res) => {
+                    match args.output {
+                        Some(path) => write_results(&path, &res)?,
+                        None => (),
+                    };
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
+            }
         }
     }
 }
