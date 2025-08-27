@@ -7,6 +7,7 @@ use std::{
 };
 use digest::Digest;
 use noncrypto_digests::{Fnv, Xxh3_64, Xxh3_128, Xxh32, Xxh64};
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::{HashResult, CheckResult, bytes_to_hash};
 
@@ -69,6 +70,12 @@ fn hash_file_xxh3_128(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh3_128::new();
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -78,6 +85,7 @@ fn hash_file_xxh3_128(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
@@ -95,6 +103,12 @@ fn hash_file_xxh3_64(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh3_64::new();
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -104,6 +118,7 @@ fn hash_file_xxh3_64(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
@@ -121,6 +136,12 @@ fn hash_file_xxh64(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh64::new();
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -130,6 +151,7 @@ fn hash_file_xxh64(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
@@ -146,7 +168,12 @@ fn hash_file_xxh64(path: &Path) -> Result<HashResult> {
 fn hash_file_xxh32(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
-    let mut hasher = Xxh32::new();
+    let mut hasher = Xxh32::new();let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -156,6 +183,7 @@ fn hash_file_xxh32(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
@@ -172,7 +200,12 @@ fn hash_file_xxh32(path: &Path) -> Result<HashResult> {
 fn hash_file_fnv(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
-    let mut hasher = Fnv::new();
+    let mut hasher = Fnv::new();let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -182,6 +215,7 @@ fn hash_file_fnv(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;

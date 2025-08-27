@@ -6,6 +6,7 @@ use std::{
     path::{Path},
 };
 use digest::Digest;
+use indicatif::{ProgressBar, ProgressStyle}; 
 
 use crate::{HashResult, CheckResult, bytes_to_hash};
 
@@ -68,6 +69,12 @@ fn hash_file_blake2(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = blake2::Blake2b512::new();
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -77,6 +84,7 @@ fn hash_file_blake2(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
@@ -94,6 +102,12 @@ fn hash_file_blake3(path: &Path) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -103,6 +117,7 @@ fn hash_file_blake3(path: &Path) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;

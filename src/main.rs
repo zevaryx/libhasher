@@ -8,6 +8,7 @@ use std::{
 };
 
 use digest::DynDigest;
+use indicatif::{ProgressBar, ProgressStyle}; 
 mod blake;
 mod xxhash;
 
@@ -120,9 +121,14 @@ fn check(path: &Path, hasher: &mut dyn DynDigest) -> Result<CheckResult> {
 }
 
 fn hash_file(path: &Path, hasher: &mut dyn DynDigest) -> Result<HashResult> {
-    let chunk_size = 4096;
+    let chunk_size: usize = 4096;
     let mut file = fs::File::open(path)?;
-
+    let pb = ProgressBar::new(file.metadata()?.len());
+    pb.set_message(path.display().to_string());
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+        .unwrap()
+        .progress_chars("█▉▊▋▌▍▎▏ "));
+        // .progress_chars("#>-"));
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
         let n = std::io::Read::by_ref(&mut file)
@@ -131,11 +137,13 @@ fn hash_file(path: &Path, hasher: &mut dyn DynDigest) -> Result<HashResult> {
         if n == 0 {
             break;
         }
+        pb.inc(n as u64);
         hasher.update(&chunk);
         if n < chunk_size {
             break;
         }
     }
+    pb.finish_and_clear();
     let hash = hasher.finalize_reset();
     Ok(HashResult {
         filename: path.display().to_string(),
