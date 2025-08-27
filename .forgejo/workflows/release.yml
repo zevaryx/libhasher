@@ -33,7 +33,7 @@ jobs:
       - name: Generate SHA256 checksums
         run: |
           cd release
-          hasher-gnu-linux-x86_64
+          chmod +x hasher-gnu-linux-x86_64
           ./hasher-gnu-linux-x86_64 -a sha256 hasher-gnu-linux-x86_64 -o hasher-gnu-linux-x86_64.sha256
           ./hasher-gnu-linux-x86_64 -a sha256 hasher-windows.exe -o hasher-windows.exe.sha256
 
