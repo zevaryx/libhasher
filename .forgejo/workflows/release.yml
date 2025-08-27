@@ -19,19 +19,12 @@ jobs:
           chmod +x rustup-init.sh
           ./rustup-init.sh -y
           . "$HOME/.cargo/env"
-
-      - name: Install rustup targets
-        run: |
-          . "$HOME/.cargo/env"
           rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
 
-      - name: Build the executable
+      - name: Build the release
         run: |
           . "$HOME/.cargo/env"
           cargo build --release --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu
-
-      - name: Copy binaries
-        run: |
           ls target/
           mkdir -p release
           cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-gnu-linux-x86_64
@@ -39,9 +32,10 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
-          chmod +x release/hasher-gnu-linux-x86_64
-          ./release/hasher-gnu-linux-x86_64 -a sha256 release/hasher-gnu-linux-x86_64 -o release/hasher-gnu-linux-x86_64.sha256
-          ./release/hasher-gnu-linux-x86_64 -a sha256 release/hasher-windows.exe -o release/hasher-windows.exe.sha256
+          cd release
+          hasher-gnu-linux-x86_64
+          ./hasher-gnu-linux-x86_64 -a sha256 hasher-gnu-linux-x86_64 -o hasher-gnu-linux-x86_64.sha256
+          ./hasher-gnu-linux-x86_64 -a sha256 hasher-windows.exe -o hasher-windows.exe.sha256
 
       - name: Upload release binaries
         uses: actions/forgejo-release@v2.5.0
