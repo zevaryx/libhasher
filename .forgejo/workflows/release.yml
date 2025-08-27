@@ -1,0 +1,38 @@
+on:
+  release:
+    types: 
+      - created
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Install Linux and Windows Cross Compilers
+          run: udo apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32
+
+        - name: Install rustup targets
+          run: rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
+
+        - name: Build the executable
+          run: cargo build --release --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu
+
+        - name: Copy binaries
+          run: |
+            cp ./target/x86_64-unknown-linux-musl/release/hasher hasher-gnu-linux-x86_64
+            cp ./target/x86_64-pc-windows-gnu/release/hasher hasher-windows.exe
+
+        - name: Generate SHA256 checksums
+          run: |
+            chmod +x hasher-gnu-linux-x86_64
+            ./hasher-gnu-linux-x86_64 -a sha256 hasher-gnu-linux-x86_64 -o hasher-gnu-linux-x86_64.sha256
+            ./hasher-gnu-linux-x86_64 -a sha256 hasher-windows.exe -o hasher-windows.exe.sha256
+
+        - name: Upload release binaries
+          uses: alexellis/upload-assets@0.4.0
+          env:
+            GITHUB_TOKEN: ${{ github.token }}
+          with:
+              asset_paths: ["hasher-gnu-linux-x86_64", "hasher-gnu-linux-x86_64.SHA256", "hasher-windows.exe", "hasher-windows.exe.sha256"]
