@@ -16,23 +16,23 @@ jobs:
       - name: Setup rust
         uses: theoparis/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl,x86_64-pc-windows-gnu
+          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu,aarch64-unknown-linux-musl
 
       - name: Build the release
         run: |
-          export CC_aarch64_unknown_linux_musl=clang
-          export AR_aarch64_unknown_linux_musl=llvm-ar
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
-          cargo build --release --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl --target x86_64-pc-windows-gnu
+          # export CC_aarch64_unknown_linux_musl=clang
+          # export AR_aarch64_unknown_linux_musl=llvm-ar
+          # export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
+          cargo build --release --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu #--target aarch64-unknown-linux-musl
       
       - name: Generate the release folder
         run: |
           mkdir -p release
           cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-linux-x86_64
-          cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-linux-aarch64
+          #cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-linux-aarch64
           cp ./target/x86_64-pc-windows-gnu/release/hasher.exe release/hasher-windows.exe
           cd release
-          chmod +x hasher-gnu-linux-x86_64
+          chmod +x hasher-linux-x86_64
           for file in *; do hasher -a sha256 $file -o ${file}.sha256; done
 
       - name: Upload release binaries
