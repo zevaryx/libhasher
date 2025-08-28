@@ -28,8 +28,8 @@ jobs:
       - name: Generate the release folder
         run: |
           mkdir -p release
-          cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-gnu-linux-x86_64
-          cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-gnu-linux-aarch64
+          cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-linux-x86_64
+          cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-linux-aarch64
           cp ./target/x86_64-pc-windows-gnu/release/hasher.exe release/hasher-windows.exe
           cd release
           chmod +x hasher-gnu-linux-x86_64
