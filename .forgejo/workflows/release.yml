@@ -13,25 +13,20 @@ jobs:
       - name: Install Linux and Windows Cross Compilers
         run: apt-get update && apt-get install --yes --no-install-recommends musl-tools gcc-mingw-w64-x86-64-win32 curl
 
-      - name: Install rustup
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh
-          chmod +x rustup-init.sh
-          ./rustup-init.sh -y
-          . "$HOME/.cargo/env"
-          rustup target add x86_64-unknown-linux-musl x86_64-pc-windows-gnu
+      - name: Setup rust
+        uses: theoparis/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu
 
       - name: Build the release
         run: |
-          . "$HOME/.cargo/env"
           cargo build --release --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu
-          ls target/
+      
+      - name: Generate the release folder
+        run: |
           mkdir -p release
           cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-gnu-linux-x86_64
           cp ./target/x86_64-pc-windows-gnu/release/hasher.exe release/hasher-windows.exe
-
-      - name: Generate SHA256 checksums
-        run: |
           cd release
           chmod +x hasher-gnu-linux-x86_64
           ./hasher-gnu-linux-x86_64 -a sha256 hasher-gnu-linux-x86_64 -o hasher-gnu-linux-x86_64.sha256
