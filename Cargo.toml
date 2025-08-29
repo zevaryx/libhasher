@@ -1,6 +1,6 @@
 [package]
 name = "hasher"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 [profile.release]
@@ -11,7 +11,7 @@ strip="symbols"
 [dependencies]
 anyhow = "1.0.99"
 blake2 = "0.10.6"
-blake3 = "1.8.2"
+blake3 = { version = "1.8.2", features = ["rayon", "mmap"] }
 clap = { version = "4.5.45", features = ["derive"] }
 colored = "3.0.0"
 digest = { version = "0.10.7", features = ["alloc"] }

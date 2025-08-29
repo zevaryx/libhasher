@@ -25,6 +25,9 @@ struct Args {
     #[arg(short, long, help = "Optional. File to save hashsum to")]
     output: Option<PathBuf>,
 
+    #[arg(long, help = "Disable mmap in blake3. Also disables the progress bar for blake3")]
+    no_mmap: bool,
+
     #[arg(
         short,
         long,
@@ -275,7 +278,7 @@ pub fn main() -> Result<()> {
         }
     } else if BLAKE.contains(&args.algorithm.as_str()) {
 if args.check {
-            match blake::check(&args.file, &args.algorithm.as_str()) {
+            match blake::check(&args.file, &args.algorithm.as_str(), !args.no_mmap) {
                 Ok(result) => {
                     if result.total == 0 {
                         println!("{}: no properly formatted lines found", args.file.display());
@@ -314,7 +317,7 @@ if args.check {
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match blake::hash_root(&args.file, &args.algorithm.as_str(), args.symlinks) {
+            match blake::hash_root(&args.file, &args.algorithm.as_str(), args.symlinks, !args.no_mmap) {
                 Ok(res) => {
                     match args.output {
                         Some(path) => write_results(&path, &res)?,

@@ -10,7 +10,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::{HashResult, CheckResult, bytes_to_hash};
 
-pub fn check(path: &Path, method: &str) -> Result<CheckResult> {
+pub fn check(path: &Path, method: &str, mmap: bool) -> Result<CheckResult> {
     let file = fs::File::open(path)?;
     let lines = io::BufReader::new(file).lines();
     let mut total = 0;
@@ -26,7 +26,7 @@ pub fn check(path: &Path, method: &str) -> Result<CheckResult> {
             {
                 total += 1;
                 print!("{}: ", filename.bright_cyan());
-                match hash_file(&Path::new(filename), method) {
+                match hash_file(&Path::new(filename), method, mmap) {
                     Ok(result) => match result.hash {
                         Some(h) => {
                             if h.eq(hash) {
@@ -98,30 +98,35 @@ fn hash_file_blake2(path: &Path) -> Result<HashResult> {
     })
 }
 
-fn hash_file_blake3(path: &Path) -> Result<HashResult> {
-    let chunk_size = 4096;
-    let mut file = fs::File::open(path)?;
+fn hash_file_blake3(path: &Path, mmap: bool) -> Result<HashResult> {
     let mut hasher = blake3::Hasher::new();
-    let pb = ProgressBar::new(file.metadata()?.len());
-    pb.set_message(path.display().to_string());
-    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
-        .unwrap()
-        .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    if !mmap {
+        let chunk_size = 16 * 1024 * 1024; // 16MB
+        let mut file = fs::File::open(path)?;
+        let pb = ProgressBar::new(file.metadata()?.len());
+        pb.set_message(path.display().to_string());
+        pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+            .unwrap()
+            .progress_chars("█▉▊▋▌▍▎▏ "));
+            // .progress_chars("#>-"));
 
-    loop {
-        let mut chunk = Vec::with_capacity(chunk_size);
-        let n = std::io::Read::by_ref(&mut file)
-            .take(chunk_size as u64)
-            .read_to_end(&mut chunk)?;
-        if n == 0 {
-            break;
+        loop {
+            let mut chunk = Vec::with_capacity(chunk_size);
+            let n = std::io::Read::by_ref(&mut file)
+                .take(chunk_size as u64)
+                .read_to_end(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            pb.inc(n as u64);
+            hasher.update_rayon(&chunk);
+            if n < chunk_size {
+                break;
+            }
         }
-        pb.inc(n as u64);
-        hasher.update(&chunk);
-        if n < chunk_size {
-            break;
-        }
+    }
+    else {
+        hasher.update_mmap_rayon(path)?;
     }
     let hash = hasher.finalize();
     Ok(HashResult {
@@ -131,23 +136,23 @@ fn hash_file_blake3(path: &Path) -> Result<HashResult> {
     })
 }
 
-fn hash_file(path: &Path, method: &str) -> Result<HashResult> {
+fn hash_file(path: &Path, method: &str, mmap: bool) -> Result<HashResult> {
     match method {
         "blake2" => hash_file_blake2(path),
-        "blake3" => hash_file_blake3(path),
+        "blake3" => hash_file_blake3(path, mmap),
         _ => panic!("Unsupported hash algorithm: {}", method)
     }
     
 }
 
-pub fn hash_root(root: &Path, method: &str, symlinks: bool) -> Result<Vec<HashResult>> {
+pub fn hash_root(root: &Path, method: &str, symlinks: bool, mmap: bool) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
     if root.is_dir() && (symlinks == true || !root.is_symlink()) {
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() && (symlinks == true || !path.is_symlink()) {
-                match hash_root(&path, method, symlinks) {
+                match hash_root(&path, method, symlinks, mmap) {
                     Ok(mut res) => hash_results.append(&mut res),
                     Err(e) => hash_results.push(HashResult {
                         filename: path.as_path().display().to_string(),
@@ -156,7 +161,7 @@ pub fn hash_root(root: &Path, method: &str, symlinks: bool) -> Result<Vec<HashRe
                     }),
                 };
             } else if path.is_file() {
-                let result = hash_file(&path, method)?;
+                let result = hash_file(&path, method, mmap)?;
                 let hash = match &result.hash {
                     Some(h) => h.to_owned(),
                     None => match &result.error {
@@ -169,7 +174,7 @@ pub fn hash_root(root: &Path, method: &str, symlinks: bool) -> Result<Vec<HashRe
             }
         }
     } else if root.is_file() {
-        let result = hash_file(&root, method)?;
+        let result = hash_file(&root, method, mmap)?;
         let hash = match &result.hash {
             Some(h) => h.to_owned(),
             None => match &result.error {
