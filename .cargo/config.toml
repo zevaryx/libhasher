@@ -1,0 +1,22 @@
+[env]
+SDKROOT = "/opt/osxcross/SDK/MacOSX15.sdk"
+CARGO_FEATURE_NO_NEON = "1"
+CC_aarch64-apple-darwin = "/opt/osxcross/bin/aarch64-apple-darwin24-clang"
+AR_aarch64-apple-darwin = "/opt/osxcross/bin/aarch64-apple-darwin24-ar"
+CC_x86_64-apple-darwin = "/opt/osxcross/bin/x86_64-apple-darwin24-clang"
+AR_x86_64-apple-darwin = "/opt/osxcross/bin/x86_64-apple-darwin24-ar"
+CC_aarch64-unknown-linux-musl = "clang"
+AR_aarch64-unknown-linux-musl = "llvm-ar"
+
+
+[target.aarch64-apple-darwin]
+linker = "rust-lld"
+rustc-env = { CC = "/opt/osxcross/bin/aarch64-apple-darwin24-clang", AR = "/opt/osxcross/bin/aarch64-apple-darwin24-ar" }
+
+[target.x86_64-apple-darwin]
+linker = "rust-lld"
+rustc-env = { CC = "/opt/osxcross/bin/x86_64-apple-darwin24-clang", AR = "/opt/osxcross/bin/x86_64-apple-darwin24-ar" }
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustc-env = { CC = "clang", AR = "llvm-ar" }

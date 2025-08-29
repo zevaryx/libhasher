@@ -4,56 +4,20 @@ on:
       - 'v*'
 
 jobs:
-  build-macos:
-    runs-on: macos
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build the release
-        run: |
-          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin
-
-      - name: Generate the release folder
-        run: |
-          mkdir -p release
-          cp ./target/x86_64-apple-darwin/release/hasher release/hasher-darwin-x86_64
-          cp ./target/aarch64-apple-darwin/release/hasher release/hasher-darwin-aarch64
-          cd release
-          chmod +x hasher-darwin-x86_64
-          for file in *; do ./hasher-darwin-x86_64 -a sha256 $file -o ${file}.sha256; done
-
-      - name: Upload release binaries
-        uses: actions/forgejo-release@v2.5.0
-        with:
-          url: "https://git.zevaryx.com"
-          repo: "zevaryx/hasher-rs"
-          direction: upload
-          tag: "${{ github.ref_name }}"
-          sha: "${{ github.sha }}"
-          release-dir: release
-          token: ${{ github.TOKEN }}
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-rust
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Linux and Windows Cross Compilers
-        run: apt-get update && apt-get install --yes --no-install-recommends clang llvm musl-tools gcc-mingw-w64-x86-64-win32 curl
-
-      - name: Setup rust
-        uses: theoparis/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl,x86_64-pc-windows-gnu,aarch64-unknown-linux-musl
-
       - name: Build the release
         run: |
-          export CC_aarch64_unknown_linux_musl=clang
-          export AR_aarch64_unknown_linux_musl=llvm-ar
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
-          export CARGO_FEATURE_NO_NEON=1
-          cargo build --release --target x86_64-unknown-linux-musl --target x86_64-pc-windows-gnu --target aarch64-unknown-linux-musl
+          cargo build --release \
+            --target x86_64-unknown-linux-musl \
+            --target x86_64-pc-windows-gnu \
+            --target aarch64-unknown-linux-musl \
+            --target x86_64-apple-darwin \
+            --target aarch64-apple-darwin
       
       - name: Generate the release folder
         run: |
@@ -61,6 +25,8 @@ jobs:
           cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-linux-x86_64
           cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-linux-aarch64
           cp ./target/x86_64-pc-windows-gnu/release/hasher.exe release/hasher-windows.exe
+          cp ./target/aarch64-apple-darwin/release/hasher release/hasher-darwin-aarch64
+          cp ./target/x86_64-apple-darwin/release/hasher release/hasher-darwin-x86_64
           cd release
           chmod +x hasher-linux-x86_64
           for file in *; do ./hasher-linux-x86_64 -a sha256 $file -o ${file}.sha256; done
