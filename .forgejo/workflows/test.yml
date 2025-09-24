@@ -1,0 +1,12 @@
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: cargo test
