@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use clap_stdin::FileOrStdin;
 use colored::Colorize;
+use ignore::{overrides::OverrideBuilder, Walk, WalkBuilder};
 use std::{
     fs::{self, File},
     io::{self, BufRead, BufWriter, Read, Write},
@@ -45,8 +46,38 @@ struct Args {
     )]
     check: bool,
 
-    #[arg(short, long, help = "Follow symlinks")]
-    symlinks: bool,
+    #[arg(long, help = "Add a path to ignore")]
+    exclude: Option<Vec<String>>,
+
+    #[arg(long, help = "Add a path to include")]
+    include: Option<Vec<String>>,
+
+    #[arg(long, help = "Max recursion depth")]
+    max_depth: Option<usize>,
+
+    #[arg(long, help = "Max file size to show")]
+    max_filesize: Option<u64>,
+
+    #[arg(long, help = "Follow links")]
+    follow_links: bool,
+
+    #[arg(long, help = "Walk hidden directories")]
+    hidden: bool,
+
+    #[arg(long, help = "Ignore .ignore files")]
+    no_ignore: bool,
+
+    #[arg(long, help = "Ignore .gitignore files")]
+    no_gitignore: bool,
+
+    #[arg(long, help = "Ignore .git/info/exclude")]
+    no_git_exclude: bool,
+
+    #[arg(long, help = "Ignore global gitignore files")]
+    no_global_gitignore: bool,
+
+    #[arg(long, help = "Ignore parent directory ignore files")]
+    no_parents: bool,
 
     #[arg(help = "The file, folder, or stdin to hash", default_value = "-")]
     file: FileOrStdin,
@@ -68,8 +99,55 @@ pub struct CheckResult {
     invalid: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn get_walker(
+    path: &PathBuf,
+    exclude: Option<Vec<String>>,
+    include: Option<Vec<String>>,
+    max_depth: Option<usize>,
+    max_filesize: Option<u64>,
+    follow_links: bool,
+    hidden: bool,
+    no_ignore: bool,
+    no_gitignore: bool,
+    no_git_exclude: bool,
+    no_global_gitignore: bool,
+    no_parents: bool,
+) -> Result<Walk> {
+    let mut binding = WalkBuilder::new(path);
+    let walker = binding
+        .hidden(!hidden)
+        .max_depth(max_depth)
+        .max_filesize(max_filesize)
+        .follow_links(follow_links)
+        .ignore(!no_ignore)
+        .git_ignore(!no_gitignore)
+        .git_exclude(!no_git_exclude)
+        .git_global(!no_global_gitignore)
+        .parents(!no_parents);
+    let mut over = OverrideBuilder::new(path);
+    if let Some(exclude) = exclude {
+        for mut e in exclude {
+            if !e.starts_with("!") {
+                e.insert(0, '!');
+            }
+            over.add(&e)?;
+        }
+    }
+    if let Some(include) = include {
+        for mut i in include {
+            i = String::from(i.strip_prefix("!").unwrap_or(&i));
+            over.add(&i)?;
+        }
+    }
+    walker.overrides(over.build()?);
+    Ok(walker.build())
+}
+
 pub fn get_progress_bar(progress: bool, len: u64) -> ProgressBar {
-    if progress {
+    // Set a minimum size of 256MB
+    let min_len: u64 = 256 * 1024 * 1024;
+    if progress && len >= min_len {
         ProgressBar::new(len)
     } else {
         ProgressBar::hidden()
@@ -108,7 +186,6 @@ fn check(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<Chec
                             println!("{}", "OK".bright_green());
                         } else if h.len() != hash.len() {
                             println!("{}", "INVALID".bright_red());
-                            total -= 1;
                             invalid += 1;
                         } else {
                             println!("{}", "FAILED".bright_red());
@@ -179,50 +256,27 @@ fn hash_file(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<
     })
 }
 
-fn hash_root(
-    root: &Path,
+fn hash_and_walk(
+    walker: Walk,
     hasher: &mut dyn DynDigest,
-    symlinks: bool,
     progress: bool,
 ) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
-    if root.is_dir() && (symlinks || !root.is_symlink()) {
-        for entry in fs::read_dir(root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() && (symlinks || !path.is_symlink()) {
-                match hash_root(&path, hasher, symlinks, progress) {
-                    Ok(mut res) => hash_results.append(&mut res),
-                    Err(e) => hash_results.push(HashResult {
-                        filename: path.as_path().display().to_string(),
-                        hash: None,
-                        error: Some(e.to_string()),
-                    }),
-                };
-            } else if path.is_file() {
-                let result = hash_file(&path, hasher, progress)?;
-                let hash = match &result.hash {
-                    Some(h) => h.to_owned(),
-                    None => match &result.error {
-                        Some(e) => e.to_owned(),
-                        None => String::from("Invalid hash result"),
-                    },
-                };
-                println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-                hash_results.push(result);
-            }
+    for entry in walker.map_while(Result::ok) {
+        if entry.path().is_dir() {
+            continue;
+        } else if entry.path().is_file() {
+            let result = hash_file(entry.path(), hasher, progress)?;
+            let hash = match &result.hash {
+                Some(h) => h.to_owned(),
+                None => match &result.error {
+                    Some(e) => e.to_owned(),
+                    None => String::from("Invalid hash result"),
+                },
+            };
+            println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
+            hash_results.push(result);
         }
-    } else if root.is_file() {
-        let result = hash_file(root, hasher, progress)?;
-        let hash = match &result.hash {
-            Some(h) => h.to_owned(),
-            None => match &result.error {
-                Some(e) => e.to_owned(),
-                None => String::from("Invalid hash result"),
-            },
-        };
-        println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-        hash_results.push(result);
     }
 
     Ok(hash_results)
@@ -249,6 +303,20 @@ fn write_results(path: &Path, results: &Vec<HashResult>) -> Result<()> {
 
 fn process_non_stdin(args: Args) -> Result<()> {
     let file = PathBuf::from(args.file.filename());
+    let walker = get_walker(
+        &file,
+        args.exclude,
+        args.include,
+        args.max_depth,
+        args.max_filesize,
+        args.follow_links,
+        args.hidden,
+        args.no_ignore,
+        args.no_gitignore,
+        args.no_git_exclude,
+        args.no_global_gitignore,
+        args.no_parents,
+    )?;
     if XXH3.contains(&args.algorithm.as_str()) {
         if args.check {
             match xxhash::check(&file, args.algorithm.as_str(), !args.no_progress) {
@@ -293,12 +361,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match xxhash::hash_root(
-                &file,
-                args.algorithm.as_str(),
-                args.symlinks,
-                !args.no_progress,
-            ) {
+            match xxhash::hash_and_walk(walker, args.algorithm.as_str(), !args.no_progress) {
                 Ok(res) => {
                     if let Some(path) = args.output {
                         write_results(&path, &res)?
@@ -357,10 +420,9 @@ fn process_non_stdin(args: Args) -> Result<()> {
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match blake::hash_root(
-                &file,
+            match blake::hash_and_walk(
+                walker,
                 args.algorithm.as_str(),
-                args.symlinks,
                 !args.no_mmap,
                 !args.no_progress,
             ) {
@@ -427,7 +489,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match hash_root(&file, &mut *hasher, args.symlinks, !args.no_progress) {
+            match hash_and_walk(walker, &mut *hasher, !args.no_progress) {
                 Ok(res) => {
                     if let Some(path) = args.output {
                         write_results(&path, &res)?
@@ -565,7 +627,7 @@ mod tests {
             invalid: 0,
         };
         let control_invalid = CheckResult {
-            total: 0,
+            total: 1,
             mismatch: 0,
             read_fail: 0,
             hash_fail: 0,

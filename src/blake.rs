@@ -1,6 +1,7 @@
 use anyhow::Result;
 use colored::Colorize;
 use digest::Digest;
+use ignore::Walk;
 use indicatif::ProgressStyle;
 use std::{
     fs,
@@ -163,51 +164,28 @@ pub fn hash_text(text: String, method: &str) -> Result<String> {
     }
 }
 
-pub fn hash_root(
-    root: &Path,
+pub fn hash_and_walk(
+    walker: Walk,
     method: &str,
-    symlinks: bool,
     mmap: bool,
     progress: bool,
 ) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
-    if root.is_dir() && (symlinks || !root.is_symlink()) {
-        for entry in fs::read_dir(root)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() && (symlinks || !path.is_symlink()) {
-                match hash_root(&path, method, symlinks, mmap, progress) {
-                    Ok(mut res) => hash_results.append(&mut res),
-                    Err(e) => hash_results.push(HashResult {
-                        filename: path.as_path().display().to_string(),
-                        hash: None,
-                        error: Some(e.to_string()),
-                    }),
-                };
-            } else if path.is_file() {
-                let result = hash_file(&path, method, mmap, progress)?;
-                let hash = match &result.hash {
-                    Some(h) => h.to_owned(),
-                    None => match &result.error {
-                        Some(e) => e.to_owned(),
-                        None => String::from("Invalid hash result"),
-                    },
-                };
-                println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-                hash_results.push(result);
-            }
+    for entry in walker.map_while(Result::ok) {
+        if entry.path().is_dir() {
+            continue;
+        } else if entry.path().is_file() {
+            let result = hash_file(entry.path(), method, mmap, progress)?;
+            let hash = match &result.hash {
+                Some(h) => h.to_owned(),
+                None => match &result.error {
+                    Some(e) => e.to_owned(),
+                    None => String::from("Invalid hash result"),
+                },
+            };
+            println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
+            hash_results.push(result);
         }
-    } else if root.is_file() {
-        let result = hash_file(root, method, mmap, progress)?;
-        let hash = match &result.hash {
-            Some(h) => h.to_owned(),
-            None => match &result.error {
-                Some(e) => e.to_owned(),
-                None => String::from("Invalid hash result"),
-            },
-        };
-        println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-        hash_results.push(result);
     }
 
     Ok(hash_results)
