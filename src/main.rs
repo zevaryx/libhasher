@@ -545,10 +545,32 @@ mod tests {
     fn test_errors() {
         let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
         let mut hasher = get_hasher("sha256");
-        let result_fail = check(PathBuf::from(base_path.clone() + "/tests/test.fail").as_path(), &mut *hasher, false).unwrap();
-        let result_invalid = check(PathBuf::from(base_path.clone() + "/tests/test.invalid").as_path(), &mut *hasher, false).unwrap();
-        let control_fail = CheckResult { total: 1, mismatch: 1, read_fail: 0, hash_fail: 0, invalid: 0};
-        let control_invalid = CheckResult { total: 0, mismatch: 0, read_fail: 0, hash_fail: 0, invalid: 1};
+        let result_fail = check(
+            PathBuf::from(base_path.clone() + "/tests/test.fail").as_path(),
+            &mut *hasher,
+            false,
+        )
+        .unwrap();
+        let result_invalid = check(
+            PathBuf::from(base_path.clone() + "/tests/test.invalid").as_path(),
+            &mut *hasher,
+            false,
+        )
+        .unwrap();
+        let control_fail = CheckResult {
+            total: 1,
+            mismatch: 1,
+            read_fail: 0,
+            hash_fail: 0,
+            invalid: 0,
+        };
+        let control_invalid = CheckResult {
+            total: 0,
+            mismatch: 0,
+            read_fail: 0,
+            hash_fail: 0,
+            invalid: 1,
+        };
 
         assert_eq!(result_fail, control_fail);
         assert_eq!(result_invalid, control_invalid);
