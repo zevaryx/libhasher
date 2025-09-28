@@ -10,6 +10,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Run tests to validate
+        run: make test
+
       - name: Build the release
         run: |
           cargo build --release \

@@ -1,15 +1,15 @@
-use anyhow::{Result};
+use anyhow::Result;
 use colored::Colorize;
+use digest::Digest;
+use indicatif::ProgressStyle;
+use noncrypto_digests::{Fnv, Xxh32, Xxh3_128, Xxh3_64, Xxh64};
 use std::{
     fs,
     io::{self, BufRead, Read},
-    path::{Path},
+    path::Path,
 };
-use digest::Digest;
-use noncrypto_digests::{Fnv, Xxh3_64, Xxh3_128, Xxh32, Xxh64};
-use indicatif::{ProgressBar, ProgressStyle};
 
-use crate::{HashResult, CheckResult, bytes_to_hash};
+use crate::{bytes_to_hash, get_progress_bar, CheckResult, HashResult};
 
 pub fn check(path: &Path, method: &str, progress: bool) -> Result<CheckResult> {
     let file = fs::File::open(path)?;
@@ -20,47 +20,45 @@ pub fn check(path: &Path, method: &str, progress: bool) -> Result<CheckResult> {
     let mut hash_fail: u64 = 0;
     let mut invalid: u64 = 0;
 
-    for line in lines {
-        if let Ok(line) = line {
-            if let [hash, filename, ..] =
-                &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
-            {
-                total += 1;
-                print!("{}: ", filename.bright_cyan());
-                match hash_file(&Path::new(filename), method, progress) {
-                    Ok(result) => match result.hash {
-                        Some(h) => {
-                            if h.eq(hash) {
-                                print!("{}\n", "OK".bright_green());
-                            } else if h.len() != hash.len() {
-                                print!("{}\n", "INVALID".bright_red());
-                                total -= 1;
-                                invalid += 1;
-                            } else {
-                                print!("{}\n", "FAILED".bright_red());
-                                mismatch += 1;
-                            }
+    for line in lines.map_while(Result::ok) {
+        if let [hash, filename, ..] =
+            &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
+        {
+            total += 1;
+            print!("{}: ", filename.bright_cyan());
+            match hash_file(Path::new(filename), method, progress) {
+                Ok(result) => match result.hash {
+                    Some(h) => {
+                        if h.eq(hash) {
+                            println!("{}", "OK".bright_green());
+                        } else if h.len() != hash.len() {
+                            println!("{}", "INVALID".bright_red());
+                            total -= 1;
+                            invalid += 1;
+                        } else {
+                            println!("{}", "FAILED".bright_red());
+                            mismatch += 1;
                         }
-                        None => {
-                            print!("{}\n", "READ_FAIL".bright_red());
-                            read_fail += 1;
-                        }
-                    },
-                    Err(_) => {
-                        print!("{}\n", "HASH_FAIL".bright_red());
-                        hash_fail += 1;
                     }
+                    None => {
+                        println!("{}", "READ_FAIL".bright_red());
+                        read_fail += 1;
+                    }
+                },
+                Err(_) => {
+                    println!("{}", "HASH_FAIL".bright_red());
+                    hash_fail += 1;
                 }
             }
         }
     }
 
     let result = CheckResult {
-        total: total,
-        mismatch: mismatch,
-        read_fail: read_fail,
-        hash_fail: hash_fail,
-        invalid: invalid,
+        total,
+        mismatch,
+        read_fail,
+        hash_fail,
+        invalid,
     };
 
     Ok(result)
@@ -70,18 +68,12 @@ fn hash_file_xxh3_128(path: &Path, progress: bool) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh3_128::new();
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
     pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -100,7 +92,7 @@ fn hash_file_xxh3_128(path: &Path, progress: bool) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
@@ -109,25 +101,19 @@ fn hash_text_xxh3_128(text: String) -> Result<String> {
     let mut hasher = Xxh3_128::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&*hash))
+    Ok(bytes_to_hash(&hash))
 }
 
 fn hash_file_xxh3_64(path: &Path, progress: bool) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh3_64::new();
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
     pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -146,7 +132,7 @@ fn hash_file_xxh3_64(path: &Path, progress: bool) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
@@ -155,26 +141,19 @@ fn hash_text_xxh3_64(text: String) -> Result<String> {
     let mut hasher = Xxh3_64::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&*hash))
+    Ok(bytes_to_hash(&hash))
 }
-
 
 fn hash_file_xxh64(path: &Path, progress: bool) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh64::new();
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
     pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -193,7 +172,7 @@ fn hash_file_xxh64(path: &Path, progress: bool) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
@@ -202,26 +181,19 @@ fn hash_text_xxh64(text: String) -> Result<String> {
     let mut hasher = Xxh64::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&*hash))
+    Ok(bytes_to_hash(&hash))
 }
-
 
 fn hash_file_xxh32(path: &Path, progress: bool) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Xxh32::new();
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
     pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -240,7 +212,7 @@ fn hash_file_xxh32(path: &Path, progress: bool) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
@@ -249,26 +221,19 @@ fn hash_text_xxh32(text: String) -> Result<String> {
     let mut hasher = Xxh32::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&*hash))
+    Ok(bytes_to_hash(&hash))
 }
-
 
 fn hash_file_fnv(path: &Path, progress: bool) -> Result<HashResult> {
     let chunk_size = 4096;
     let mut file = fs::File::open(path)?;
     let mut hasher = Fnv::new();
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
     pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏ "));
-        // .progress_chars("#>-"));
+    // .progress_chars("#>-"));
 
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
@@ -287,7 +252,7 @@ fn hash_file_fnv(path: &Path, progress: bool) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
@@ -296,9 +261,8 @@ fn hash_text_fnv(text: String) -> Result<String> {
     let mut hasher = Fnv::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&*hash))
+    Ok(bytes_to_hash(&hash))
 }
-
 
 fn hash_file(path: &Path, method: &str, progress: bool) -> Result<HashResult> {
     match method {
@@ -307,9 +271,8 @@ fn hash_file(path: &Path, method: &str, progress: bool) -> Result<HashResult> {
         "xxh64" => hash_file_xxh64(path, progress),
         "xxh32" => hash_file_xxh32(path, progress),
         "fnv" => hash_file_fnv(path, progress),
-        _ => panic!("Unsupported hash algorithm: {}", method)
+        _ => panic!("Unsupported hash algorithm: {}", method),
     }
-    
 }
 
 pub fn hash_text(text: String, method: &str) -> Result<String> {
@@ -319,18 +282,22 @@ pub fn hash_text(text: String, method: &str) -> Result<String> {
         "xxh64" => hash_text_xxh64(text),
         "xxh32" => hash_text_xxh32(text),
         "fnv" => hash_text_fnv(text),
-        _ => panic!("Unsupported hash algorithm: {}", method)
+        _ => panic!("Unsupported hash algorithm: {}", method),
     }
-    
 }
 
-pub fn hash_root(root: &Path, method: &str, symlinks: bool, progress: bool) -> Result<Vec<HashResult>> {
+pub fn hash_root(
+    root: &Path,
+    method: &str,
+    symlinks: bool,
+    progress: bool,
+) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
-    if root.is_dir() && (symlinks == true || !root.is_symlink()) {
+    if root.is_dir() && (symlinks || !root.is_symlink()) {
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_dir() && (symlinks == true || !path.is_symlink()) {
+            if path.is_dir() && (symlinks || !path.is_symlink()) {
                 match hash_root(&path, method, symlinks, progress) {
                     Ok(mut res) => hash_results.append(&mut res),
                     Err(e) => hash_results.push(HashResult {
@@ -353,7 +320,7 @@ pub fn hash_root(root: &Path, method: &str, symlinks: bool, progress: bool) -> R
             }
         }
     } else if root.is_file() {
-        let result = hash_file(&root, method, progress)?;
+        let result = hash_file(root, method, progress)?;
         let hash = match &result.hash {
             Some(h) => h.to_owned(),
             None => match &result.error {
@@ -371,10 +338,7 @@ pub fn hash_root(root: &Path, method: &str, symlinks: bool, progress: bool) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        env,
-        path::PathBuf
-    };
+    use std::{env, path::PathBuf};
 
     // We are only checking algorithms located in this file
     static TEST_ALGOS: &'static [&str] = &["xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
@@ -383,7 +347,7 @@ mod tests {
         "b3f5bb77a55fad5e",
         "da83efc38a8922b4",
         "eac53571",
-        "2474e7fb1aec9f05"
+        "2474e7fb1aec9f05",
     ];
 
     #[test]

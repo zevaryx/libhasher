@@ -9,13 +9,16 @@ use std::{
 };
 
 use digest::DynDigest;
-use indicatif::{ProgressBar, ProgressStyle}; 
+use indicatif::{ProgressBar, ProgressStyle};
 mod blake;
 mod xxhash;
 
-static ALGOS: &'static [&str] = &["blake2", "blake3", "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
-static XXH3: &'static [&str] = &["xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
-static BLAKE: &'static [&str] = &["blake2", "blake3"];
+static ALGOS: &[&str] = &[
+    "blake2", "blake3", "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128",
+    "xxh3_64", "xxh64", "xxh32", "fnv",
+];
+static XXH3: &[&str] = &["xxh3_128", "xxh3_64", "xxh64", "xxh32", "fnv"];
+static BLAKE: &[&str] = &["blake2", "blake3"];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
@@ -26,7 +29,10 @@ struct Args {
     #[arg(short, long, help = "Optional. File to save hashsum to")]
     output: Option<PathBuf>,
 
-    #[arg(long, help = "Disable mmap in blake3. Also disables the progress bar for blake3")]
+    #[arg(
+        long,
+        help = "Disable mmap in blake3. Also disables the progress bar for blake3"
+    )]
     no_mmap: bool,
 
     #[arg(long, help = "Disable progress bar")]
@@ -53,13 +59,21 @@ pub struct HashResult {
     error: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CheckResult {
     total: u64,
     mismatch: u64,
     read_fail: u64,
     hash_fail: u64,
     invalid: u64,
+}
+
+pub fn get_progress_bar(progress: bool, len: u64) -> ProgressBar {
+    if progress {
+        ProgressBar::new(len)
+    } else {
+        ProgressBar::hidden()
+    }
 }
 
 pub fn bytes_to_hash(hash: &[u8]) -> String {
@@ -81,47 +95,45 @@ fn check(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<Chec
     let mut hash_fail: u64 = 0;
     let mut invalid: u64 = 0;
 
-    for line in lines {
-        if let Ok(line) = line {
-            if let [hash, filename, ..] =
-                &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
-            {
-                total += 1;
-                print!("{}: ", filename.bright_cyan());
-                match hash_file(&Path::new(filename), hasher, progress) {
-                    Ok(result) => match result.hash {
-                        Some(h) => {
-                            if h.eq(hash) {
-                                print!("{}\n", "OK".bright_green());
-                            } else if h.len() != hash.len() {
-                                print!("{}\n", "INVALID".bright_red());
-                                total -= 1;
-                                invalid += 1;
-                            } else {
-                                print!("{}\n", "FAILED".bright_red());
-                                mismatch += 1;
-                            }
+    for line in lines.map_while(Result::ok) {
+        if let [hash, filename, ..] =
+            &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
+        {
+            total += 1;
+            print!("{}: ", filename.bright_cyan());
+            match hash_file(Path::new(filename), hasher, progress) {
+                Ok(result) => match result.hash {
+                    Some(h) => {
+                        if h.eq(hash) {
+                            println!("{}", "OK".bright_green());
+                        } else if h.len() != hash.len() {
+                            println!("{}", "INVALID".bright_red());
+                            total -= 1;
+                            invalid += 1;
+                        } else {
+                            println!("{}", "FAILED".bright_red());
+                            mismatch += 1;
                         }
-                        None => {
-                            print!("{}\n", "READ_FAIL".bright_red());
-                            read_fail += 1;
-                        }
-                    },
-                    Err(_) => {
-                        print!("{}\n", "HASH_FAIL".bright_red());
-                        hash_fail += 1;
                     }
+                    None => {
+                        println!("{}", "READ_FAIL".bright_red());
+                        read_fail += 1;
+                    }
+                },
+                Err(_) => {
+                    println!("{}", "HASH_FAIL".bright_red());
+                    hash_fail += 1;
                 }
             }
         }
     }
 
     let result = CheckResult {
-        total: total,
-        mismatch: mismatch,
-        read_fail: read_fail,
-        hash_fail: hash_fail,
-        invalid: invalid,
+        total,
+        mismatch,
+        read_fail,
+        hash_fail,
+        invalid,
     };
 
     Ok(result)
@@ -130,26 +142,20 @@ fn check(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<Chec
 fn hash_text(text: String, hasher: &mut dyn DynDigest) -> Result<String> {
     hasher.update(text.as_bytes());
     let hash = hasher.finalize_reset();
-    
-    Ok(bytes_to_hash(&*hash))
+
+    Ok(bytes_to_hash(&hash))
 }
 
 fn hash_file(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<HashResult> {
     let chunk_size: usize = 4096;
     let mut file = fs::File::open(path)?;
-    let pb: ProgressBar;
-    if progress {
-        pb = ProgressBar::new(file.metadata()?.len());
-    }
-    else {
-        pb = ProgressBar::hidden();
-    }
+    let pb = get_progress_bar(progress, file.metadata()?.len());
     pb.set_message(path.display().to_string());
-        pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+    pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
             .unwrap()
             .progress_chars("█▉▊▋▌▍▎▏ "));
-            // .progress_chars("#>-"));
-    
+    // .progress_chars("#>-"));
+
     loop {
         let mut chunk = Vec::with_capacity(chunk_size);
         let n = std::io::Read::by_ref(&mut file)
@@ -168,18 +174,23 @@ fn hash_file(path: &Path, hasher: &mut dyn DynDigest, progress: bool) -> Result<
     let hash = hasher.finalize_reset();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&*hash)),
+        hash: Some(bytes_to_hash(&hash)),
         error: None,
     })
 }
 
-fn hash_root(root: &Path, hasher: &mut dyn DynDigest, symlinks: bool, progress: bool) -> Result<Vec<HashResult>> {
+fn hash_root(
+    root: &Path,
+    hasher: &mut dyn DynDigest,
+    symlinks: bool,
+    progress: bool,
+) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
-    if root.is_dir() && (symlinks == true || !root.is_symlink()) {
+    if root.is_dir() && (symlinks || !root.is_symlink()) {
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_dir() && (symlinks == true || !path.is_symlink()) {
+            if path.is_dir() && (symlinks || !path.is_symlink()) {
                 match hash_root(&path, hasher, symlinks, progress) {
                     Ok(mut res) => hash_results.append(&mut res),
                     Err(e) => hash_results.push(HashResult {
@@ -202,7 +213,7 @@ fn hash_root(root: &Path, hasher: &mut dyn DynDigest, symlinks: bool, progress: 
             }
         }
     } else if root.is_file() {
-        let result = hash_file(&root, hasher, progress)?;
+        let result = hash_file(root, hasher, progress)?;
         let hash = match &result.hash {
             Some(h) => h.to_owned(),
             None => match &result.error {
@@ -236,14 +247,17 @@ fn write_results(path: &Path, results: &Vec<HashResult>) -> Result<()> {
     Ok(())
 }
 
-fn process_non_stdin(args: Args) -> Result<()>{
+fn process_non_stdin(args: Args) -> Result<()> {
     let file = PathBuf::from(args.file.filename());
     if XXH3.contains(&args.algorithm.as_str()) {
         if args.check {
-            match xxhash::check(&file, &args.algorithm.as_str(), !args.no_progress) {
+            match xxhash::check(&file, args.algorithm.as_str(), !args.no_progress) {
                 Ok(result) => {
                     if result.total == 0 {
-                        println!("{}: no properly formatted lines found", args.file.filename());
+                        println!(
+                            "{}: no properly formatted lines found",
+                            args.file.filename()
+                        );
                     }
                     if result.mismatch > 0 {
                         println!(
@@ -279,12 +293,16 @@ fn process_non_stdin(args: Args) -> Result<()>{
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match xxhash::hash_root(&file, &args.algorithm.as_str(), args.symlinks, !args.no_progress) {
+            match xxhash::hash_root(
+                &file,
+                args.algorithm.as_str(),
+                args.symlinks,
+                !args.no_progress,
+            ) {
                 Ok(res) => {
-                    match args.output {
-                        Some(path) => write_results(&path, &res)?,
-                        None => (),
-                    };
+                    if let Some(path) = args.output {
+                        write_results(&path, &res)?
+                    }
                     Ok(())
                 }
                 Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
@@ -292,10 +310,18 @@ fn process_non_stdin(args: Args) -> Result<()>{
         }
     } else if BLAKE.contains(&args.algorithm.as_str()) {
         if args.check {
-            match blake::check(&file, &args.algorithm.as_str(), !args.no_mmap, !args.no_progress) {
+            match blake::check(
+                &file,
+                args.algorithm.as_str(),
+                !args.no_mmap,
+                !args.no_progress,
+            ) {
                 Ok(result) => {
                     if result.total == 0 {
-                        println!("{}: no properly formatted lines found", args.file.filename());
+                        println!(
+                            "{}: no properly formatted lines found",
+                            args.file.filename()
+                        );
                     }
                     if result.mismatch > 0 {
                         println!(
@@ -331,12 +357,17 @@ fn process_non_stdin(args: Args) -> Result<()>{
                 Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
             }
         } else {
-            match blake::hash_root(&file, &args.algorithm.as_str(), args.symlinks, !args.no_mmap, !args.no_progress) {
+            match blake::hash_root(
+                &file,
+                args.algorithm.as_str(),
+                args.symlinks,
+                !args.no_mmap,
+                !args.no_progress,
+            ) {
                 Ok(res) => {
-                    match args.output {
-                        Some(path) => write_results(&path, &res)?,
-                        None => (),
-                    };
+                    if let Some(path) = args.output {
+                        write_results(&path, &res)?
+                    }
                     Ok(())
                 }
                 Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
@@ -357,7 +388,10 @@ fn process_non_stdin(args: Args) -> Result<()>{
             match check(&file, &mut *hasher, !args.no_progress) {
                 Ok(result) => {
                     if result.total == 0 {
-                        println!("{}: no properly formatted lines found", args.file.filename());
+                        println!(
+                            "{}: no properly formatted lines found",
+                            args.file.filename()
+                        );
                     }
                     if result.mismatch > 0 {
                         println!(
@@ -395,10 +429,9 @@ fn process_non_stdin(args: Args) -> Result<()>{
         } else {
             match hash_root(&file, &mut *hasher, args.symlinks, !args.no_progress) {
                 Ok(res) => {
-                    match args.output {
-                        Some(path) => write_results(&path, &res)?,
-                        None => (),
-                    };
+                    if let Some(path) = args.output {
+                        write_results(&path, &res)?
+                    }
                     Ok(())
                 }
                 Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
@@ -424,7 +457,6 @@ fn process_stdin(args: Args) -> Result<()> {
             _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
         };
         hash = hash_text(args.file.contents_untrimmed()?, &mut *hasher)?;
-
     }
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());
     Ok(())
@@ -449,7 +481,8 @@ mod tests {
     use std::env;
 
     // We are only checking algorithms located in this file
-    static TEST_ALGOS: &'static [&str] = &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512"];
+    static TEST_ALGOS: &'static [&str] =
+        &["md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512"];
     static VALUES: &'static [&str] = &[
         "0cbc6611f5540bd0809a388dc95a615b",
         "640ab2bae07bedc4c163f679a746f7ab7fb5d1fa",
@@ -506,5 +539,18 @@ mod tests {
             let hash = hash_text(test_txt.to_owned(), &mut *hasher).unwrap();
             assert_eq!(hash, String::from(VALUES[i]));
         }
+    }
+
+    #[test]
+    fn test_errors() {
+        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let mut hasher = get_hasher("sha256");
+        let result_fail = check(PathBuf::from(base_path.clone() + "/tests/test.fail").as_path(), &mut *hasher, false).unwrap();
+        let result_invalid = check(PathBuf::from(base_path.clone() + "/tests/test.invalid").as_path(), &mut *hasher, false).unwrap();
+        let control_fail = CheckResult { total: 1, mismatch: 1, read_fail: 0, hash_fail: 0, invalid: 0};
+        let control_invalid = CheckResult { total: 0, mismatch: 0, read_fail: 0, hash_fail: 0, invalid: 1};
+
+        assert_eq!(result_fail, control_fail);
+        assert_eq!(result_invalid, control_invalid);
     }
 }
