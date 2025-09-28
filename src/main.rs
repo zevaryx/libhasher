@@ -410,9 +410,9 @@ fn process_non_stdin(args: Args) -> Result<()>{
 fn process_stdin(args: Args) -> Result<()> {
     let hash: String;
     if XXH3.contains(&args.algorithm.as_str()) {
-        hash = xxhash::hash_text(args.file.contents()?, &args.algorithm)?;
+        hash = xxhash::hash_text(args.file.contents_untrimmed()?, &args.algorithm)?;
     } else if BLAKE.contains(&args.algorithm.as_str()) {
-        hash = blake::hash_text(args.file.contents()?, &args.algorithm)?;
+        hash = blake::hash_text(args.file.contents_untrimmed()?, &args.algorithm)?;
     } else {
         let mut hasher: Box<dyn DynDigest> = match args.algorithm.as_str() {
             "md5" => Box::new(md5::Md5::default()),
@@ -423,7 +423,7 @@ fn process_stdin(args: Args) -> Result<()> {
             "sha3_512" => Box::new(sha3::Sha3_512::default()),
             _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
         };
-        hash = hash_text(args.file.contents()?, &mut *hasher)?;
+        hash = hash_text(args.file.contents_untrimmed()?, &mut *hasher)?;
 
     }
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());

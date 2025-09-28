@@ -1,6 +1,6 @@
 [package]
 name = "hasher"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 
 [profile.release]
@@ -21,4 +21,4 @@ sha2 = "0.10.9"
 sha3 = "0.10.8"
 noncrypto-digests = "0.3.6"
 indicatif = "0.18.0"
-clap-stdin = { version = "0.7.0", features = ["clap"] }
+clap-stdin = { git = "https://git.zevaryx.com/zevaryx/clap-stdin", features = ["clap"] }

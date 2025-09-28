@@ -29,8 +29,6 @@ You can also use hasher inline:
 
 `echo "test" | hasher -a sha256`
 
-However, **this will strip newlines from the end of text**. As such, the above will only match `sha256sum` if you do `echo -n`
-
 ## Installing
 
 Run the following:
