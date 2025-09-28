@@ -1,5 +1,6 @@
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   test:
@@ -9,4 +10,4 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run tests
-        run: cargo test
+        run: make test
