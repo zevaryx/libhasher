@@ -3,11 +3,14 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-rust
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run tests
-        run: make test
+      - name: Run linting
+        run: |
+          cargo fmt --message-format human -- --check
+          cargo check
+          cargo clippy -q --no-deps -- -D warnings
