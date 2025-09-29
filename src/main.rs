@@ -13,11 +13,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-static ALGOS: &[&str] = &[
-    "blake2", "blake3", "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "xxh3_128",
-    "xxh3_64", "xxh64", "xxh32", "fnv",
-];
-
 #[derive(Parser, Debug)]
 #[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
 struct Args {
@@ -348,11 +343,13 @@ fn process_non_stdin(args: Args) -> Result<()> {
         };
         match check_result {
             Ok(result) => {
+                let mut error = false;
                 if result.total == 0 {
                     println!(
                         "{}: no properly formatted lines found",
                         args.file.filename()
                     );
+                    error = true;
                 }
                 if result.mismatch > 0 {
                     println!(
@@ -360,6 +357,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                         "WARNING".bright_red(),
                         result.mismatch
                     );
+                    error = true;
                 }
                 if result.read_fail > 0 || result.hash_fail > 0 {
                     println!(
@@ -367,6 +365,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                         "WARNING".bright_red(),
                         result.read_fail + result.hash_fail
                     );
+                    error = true;
                 }
                 if result.invalid > 0 {
                     println!(
@@ -374,6 +373,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                         "WARNING".bright_red(),
                         result.invalid
                     );
+                    error = true;
                 }
                 if (result.hash_fail + result.invalid + result.read_fail) as f64
                     > (result.total as f64 * 0.8)
@@ -381,9 +381,14 @@ fn process_non_stdin(args: Args) -> Result<()> {
                     println!(
                         "{}: > 80% failures. Please check hash algorithm",
                         "WARNING".bright_red()
-                    )
+                    );
+                    error = true;
                 }
-                Ok(())
+                if error {
+                    Err(anyhow!("Please check output for errors and/or warnings"))
+                } else {
+                    Ok(())
+                }
             }
             Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
         }
@@ -444,9 +449,6 @@ fn process_stdin(args: Args) -> Result<()> {
 pub fn main() -> Result<()> {
     let args = Args::parse();
     let is_stdin = args.file.is_stdin();
-    if !ALGOS.contains(&args.algorithm.as_str()) {
-        return Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm));
-    };
     if is_stdin {
         process_stdin(args)
     } else {
