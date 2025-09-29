@@ -1,6 +1,6 @@
 [package]
 name = "hasher"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 
 [profile.release]
@@ -11,7 +11,7 @@ strip="symbols"
 [dependencies]
 anyhow = "1.0.100"
 blake2 = "0.10.6"
-blake3 = { version = "1.8.2", features = ["rayon", "mmap"] }
+blake3 = { version = "1.8.2", features = ["rayon", "mmap", "traits-preview"] }
 clap = { version = "4.5.48", features = ["derive"] }
 colored = "3.0.0"
 digest = { version = "0.10.7", features = ["alloc"] }
@@ -23,3 +23,9 @@ noncrypto-digests = "0.3.6"
 indicatif = "0.18.0"
 clap-stdin = { git = "https://git.zevaryx.com/zevaryx/clap-stdin", features = ["clap"] }
 ignore = "0.4.23"
+
+[dev-dependencies]
+tempfile = "3.8.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
