@@ -256,8 +256,7 @@ fn check<T: Digest>(path: &Path, progress: bool, mmap: bool) -> Result<CheckResu
                     "xxh3_128" => hash_file::<Xxh3_128>(Path::new(filename), progress, mmap),
                     _ => panic!("Unsupported hash algorithm: {}", algo),
                 };
-            }
-            else {
+            } else {
                 result = hash_file::<T>(Path::new(filename), progress, mmap);
             }
             match result {
@@ -297,7 +296,13 @@ fn check<T: Digest>(path: &Path, progress: bool, mmap: bool) -> Result<CheckResu
     Ok(result)
 }
 
-fn hash_and_walk<T: Digest>(walker: Walk, progress: bool, mmap: bool, algo: &str, legacy: bool) -> Result<Vec<HashResult>> {
+fn hash_and_walk<T: Digest>(
+    walker: Walk,
+    progress: bool,
+    mmap: bool,
+    algo: &str,
+    legacy: bool,
+) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
     for entry in walker.map_while(Result::ok) {
         if entry.path().is_dir() {
@@ -314,7 +319,12 @@ fn hash_and_walk<T: Digest>(walker: Walk, progress: bool, mmap: bool, algo: &str
             if legacy {
                 println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
             } else {
-                println!("{}:{}  {}", algo.bright_yellow(), hash.bright_green(), result.filename.bright_blue());
+                println!(
+                    "{}:{}  {}",
+                    algo.bright_yellow(),
+                    hash.bright_green(),
+                    result.filename.bright_blue()
+                );
             }
             hash_results.push(result);
         }
@@ -433,21 +443,97 @@ fn process_non_stdin(args: Args) -> Result<()> {
         }
     } else {
         let result = match args.algorithm.as_str() {
-            "md5" => hash_and_walk::<md5::Md5>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "sha1" => hash_and_walk::<sha1::Sha1>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "sha256" => hash_and_walk::<sha2::Sha256>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "sha512" => hash_and_walk::<sha2::Sha512>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "sha3_256" => hash_and_walk::<sha3::Sha3_256>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "sha3_512" => hash_and_walk::<sha3::Sha3_512>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "blake2" => {
-                hash_and_walk::<blake2::Blake2b512>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy)
-            }
-            "blake3" => hash_and_walk::<blake3::Hasher>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "fnv" => hash_and_walk::<Fnv>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "xxh32" => hash_and_walk::<Xxh32>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "xxh64" => hash_and_walk::<Xxh64>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "xxh3_64" => hash_and_walk::<Xxh3_64>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
-            "xxh3_128" => hash_and_walk::<Xxh3_128>(walker, !args.no_progress, !args.no_mmap, &args.algorithm.as_str(), args.legacy),
+            "md5" => hash_and_walk::<md5::Md5>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "sha1" => hash_and_walk::<sha1::Sha1>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "sha256" => hash_and_walk::<sha2::Sha256>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "sha512" => hash_and_walk::<sha2::Sha512>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "sha3_256" => hash_and_walk::<sha3::Sha3_256>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "sha3_512" => hash_and_walk::<sha3::Sha3_512>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "blake2" => hash_and_walk::<blake2::Blake2b512>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "blake3" => hash_and_walk::<blake3::Hasher>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "fnv" => hash_and_walk::<Fnv>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "xxh32" => hash_and_walk::<Xxh32>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "xxh64" => hash_and_walk::<Xxh64>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "xxh3_64" => hash_and_walk::<Xxh3_64>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
+            "xxh3_128" => hash_and_walk::<Xxh3_128>(
+                walker,
+                !args.no_progress,
+                !args.no_mmap,
+                &args.algorithm.as_str(),
+                args.legacy,
+            ),
             _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
         };
         match result {
@@ -536,9 +622,15 @@ mod tests {
                 "sha1" => hash_and_walk::<sha1::Sha1>(walker, false, true, &algorithm, false),
                 "sha256" => hash_and_walk::<sha2::Sha256>(walker, false, true, &algorithm, true),
                 "sha512" => hash_and_walk::<sha2::Sha512>(walker, false, true, &algorithm, false),
-                "sha3_256" => hash_and_walk::<sha3::Sha3_256>(walker, false, true, &algorithm, false),
-                "sha3_512" => hash_and_walk::<sha3::Sha3_512>(walker, false, true, &algorithm, false),
-                "blake2" => hash_and_walk::<blake2::Blake2b512>(walker, false, true, &algorithm, false),
+                "sha3_256" => {
+                    hash_and_walk::<sha3::Sha3_256>(walker, false, true, &algorithm, false)
+                }
+                "sha3_512" => {
+                    hash_and_walk::<sha3::Sha3_512>(walker, false, true, &algorithm, false)
+                }
+                "blake2" => {
+                    hash_and_walk::<blake2::Blake2b512>(walker, false, true, &algorithm, false)
+                }
                 "blake3" => hash_and_walk::<blake3::Hasher>(walker, false, true, &algorithm, false),
                 "fnv" => hash_and_walk::<Fnv>(walker, false, true, &algorithm, false),
                 "xxh32" => hash_and_walk::<Xxh32>(walker, false, true, &algorithm, false),
@@ -681,7 +773,8 @@ mod tests {
         .unwrap();
 
         // Algo isn't important here
-        let result = hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
+        let result =
+            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -708,7 +801,8 @@ mod tests {
         .unwrap();
 
         // Algo isn't important here
-        let result = hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
+        let result =
+            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
         assert_eq!(result.len(), 1);
     }
 
@@ -723,7 +817,8 @@ mod tests {
         .unwrap();
 
         // Algo isn't important here
-        let result = hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
+        let result =
+            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false).unwrap();
         let output = NamedTempFile::new().unwrap();
 
         write_results(output.path(), &result, "blake3", false).unwrap();
