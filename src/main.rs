@@ -314,7 +314,7 @@ fn hash_and_walk<T: Digest>(walker: Walk, progress: bool, mmap: bool, algo: &str
             if legacy {
                 println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
             } else {
-                println!("{}:{}  {}", algo.bright_green(), hash.bright_green(), result.filename.bright_cyan());
+                println!("{}:{}  {}", algo.bright_yellow(), hash.bright_green(), result.filename.bright_blue());
             }
             hash_results.push(result);
         }
