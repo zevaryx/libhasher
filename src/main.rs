@@ -447,91 +447,91 @@ fn process_non_stdin(args: Args) -> Result<()> {
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "sha1" => hash_and_walk::<sha1::Sha1>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "sha256" => hash_and_walk::<sha2::Sha256>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "sha512" => hash_and_walk::<sha2::Sha512>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "sha3_256" => hash_and_walk::<sha3::Sha3_256>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "sha3_512" => hash_and_walk::<sha3::Sha3_512>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "blake2" => hash_and_walk::<blake2::Blake2b512>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "blake3" => hash_and_walk::<blake3::Hasher>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "fnv" => hash_and_walk::<Fnv>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "xxh32" => hash_and_walk::<Xxh32>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "xxh64" => hash_and_walk::<Xxh64>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "xxh3_64" => hash_and_walk::<Xxh3_64>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             "xxh3_128" => hash_and_walk::<Xxh3_128>(
                 walker,
                 !args.no_progress,
                 !args.no_mmap,
-                &args.algorithm.as_str(),
+                args.algorithm.as_str(),
                 args.legacy,
             ),
             _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
@@ -539,7 +539,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
         match result {
             Ok(res) => {
                 if let Some(path) = args.output {
-                    write_results(&path, &res, &args.algorithm.as_str(), args.legacy)?
+                    write_results(&path, &res, args.algorithm.as_str(), args.legacy)?
                 }
                 Ok(())
             }
