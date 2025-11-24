@@ -5,15 +5,15 @@ ARCH=$(uname -m)
 OS=$(uname -s)
 unameOut="$(uname -s)"
 case "${unameOut}" in
-    Linux*)     machine=Linux;;
-    Darwin*)    machine=Mac;;
-    CYGWIN*)    machine=Cygwin;;
-    MINGW*)     machine=MinGw;;
-    MSYS_NT*)   machine=MSys;;
+    Linux*)     machine="Linux";;
+    Darwin*)    machine="Mac";;
+    CYGWIN*)    machine="Cygwin";;
+    MINGW*)     machine="MinGw";;
+    MSYS_NT*)   machine="MSys";;
     *)          machine="UNKNOWN:${unameOut}"
 esac
 
-if [ ! "$OS" -eq "Linux" ]; then
+if [ ! "$OS" = "Linux" ]; then
     echo "This script currently only works on Linux!"
     exit 1
 fi
