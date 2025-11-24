@@ -32,7 +32,7 @@ jobs:
           cp ./target/x86_64-apple-darwin/release/hasher release/hasher-darwin-x86_64
           cd release
           chmod +x hasher-linux-x86_64
-          for file in *; do ./hasher-linux-x86_64 -a sha256 $file -o ${file}.sha256; done
+          for file in *; do ./hasher-linux-x86_64 -a sha256 --legacy $file -o ${file}.sha256; done
 
       - name: Upload release binaries
         uses: actions/forgejo-release@v2.5.0
