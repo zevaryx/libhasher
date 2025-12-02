@@ -77,6 +77,51 @@ struct Args {
     #[arg(long, help = "Legacy format (don't print algorithm)")]
     legacy: bool,
 }
+#[derive(Debug)]
+pub struct WalkerOptions {
+    exclude: Option<Vec<String>>,
+    include: Option<Vec<String>>,
+    max_depth: Option<usize>,
+    max_filesize: Option<u64>,
+    follow_links: bool,
+    hidden: bool,
+    no_ignore: bool,
+    no_gitignore: bool,
+    no_git_exclude: bool,
+    no_global_gitignore: bool,
+    no_parents: bool,
+}
+
+pub fn get_walker(path: &PathBuf, opts: WalkerOptions) -> Result<Walk> {
+    let mut binding = WalkBuilder::new(path);
+    let walker = binding
+        .hidden(!opts.hidden)
+        .max_depth(opts.max_depth)
+        .max_filesize(opts.max_filesize)
+        .follow_links(opts.follow_links)
+        .ignore(!opts.no_ignore)
+        .git_ignore(!opts.no_gitignore)
+        .git_exclude(!opts.no_git_exclude)
+        .git_global(!opts.no_global_gitignore)
+        .parents(!opts.no_parents);
+    let mut over = OverrideBuilder::new(path);
+    if let Some(exclude) = opts.exclude {
+        for mut e in exclude {
+            if !e.starts_with("!") {
+                e.insert(0, '!');
+            }
+            over.add(&e)?;
+        }
+    }
+    if let Some(include) = opts.include {
+        for mut i in include {
+            i = String::from(i.strip_prefix("!").unwrap_or(&i));
+            over.add(&i)?;
+        }
+    }
+    walker.overrides(over.build()?);
+    Ok(walker.build())
+}
 
 #[derive(Debug)]
 pub struct HashResult {
@@ -94,51 +139,6 @@ pub struct CheckResult {
     invalid: u64,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn get_walker(
-    path: &PathBuf,
-    exclude: Option<Vec<String>>,
-    include: Option<Vec<String>>,
-    max_depth: Option<usize>,
-    max_filesize: Option<u64>,
-    follow_links: bool,
-    hidden: bool,
-    no_ignore: bool,
-    no_gitignore: bool,
-    no_git_exclude: bool,
-    no_global_gitignore: bool,
-    no_parents: bool,
-) -> Result<Walk> {
-    let mut binding = WalkBuilder::new(path);
-    let walker = binding
-        .hidden(!hidden)
-        .max_depth(max_depth)
-        .max_filesize(max_filesize)
-        .follow_links(follow_links)
-        .ignore(!no_ignore)
-        .git_ignore(!no_gitignore)
-        .git_exclude(!no_git_exclude)
-        .git_global(!no_global_gitignore)
-        .parents(!no_parents);
-    let mut over = OverrideBuilder::new(path);
-    if let Some(exclude) = exclude {
-        for mut e in exclude {
-            if !e.starts_with("!") {
-                e.insert(0, '!');
-            }
-            over.add(&e)?;
-        }
-    }
-    if let Some(include) = include {
-        for mut i in include {
-            i = String::from(i.strip_prefix("!").unwrap_or(&i));
-            over.add(&i)?;
-        }
-    }
-    walker.overrides(over.build()?);
-    Ok(walker.build())
-}
-
 pub fn get_progress_bar(progress: bool, len: u64) -> ProgressBar {
     // Set a minimum size of 256MB
     let min_len: u64 = 256 * 1024 * 1024;
@@ -149,21 +149,11 @@ pub fn get_progress_bar(progress: bool, len: u64) -> ProgressBar {
     }
 }
 
-pub fn bytes_to_hash(hash: &[u8]) -> String {
-    let mut result = String::new();
-
-    for byte in hash {
-        result.push_str(format!("{:02x?}", byte).as_str());
-    }
-
-    result
-}
-
 fn hash_text<T: Digest>(text: String) -> Result<String> {
     let mut hasher = T::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-    Ok(bytes_to_hash(&hash))
+    Ok(hex::encode(hash))
 }
 
 fn hash_file_blake3_mmap(path: &Path) -> Result<HashResult> {
@@ -172,7 +162,7 @@ fn hash_file_blake3_mmap(path: &Path) -> Result<HashResult> {
     let hash = hasher.finalize();
     Ok(HashResult {
         filename: path.display().to_string(),
-        hash: Some(bytes_to_hash(&hash)),
+        hash: Some(hex::encode(hash)),
         error: None,
     })
 }
@@ -182,9 +172,10 @@ fn hash_file<T: Digest>(path: &Path, progress: bool, mmap: bool) -> Result<HashR
         // Because of the mmap stuff, we need to just route blake3 to a custom function
         hash_file_blake3_mmap(path)
     } else {
-        let chunk_size: usize = 8192;
         let mut file = fs::File::open(path)?;
         let mut hasher = T::new();
+
+        let mut buf = [0u8; 8192];
 
         let pb = get_progress_bar(progress, file.metadata()?.len());
         pb.set_message(path.display().to_string());
@@ -193,24 +184,18 @@ fn hash_file<T: Digest>(path: &Path, progress: bool, mmap: bool) -> Result<HashR
                 .progress_chars("█▉▊▋▌▍▎▏ "));
 
         loop {
-            let mut chunk = Vec::with_capacity(chunk_size);
-            let n = std::io::Read::by_ref(&mut file)
-                .take(chunk_size as u64)
-                .read_to_end(&mut chunk)?;
+            let n = file.read(&mut buf)?;
             if n == 0 {
                 break;
             }
             pb.inc(n as u64);
-            hasher.update(&chunk);
-            if n < chunk_size {
-                break;
-            }
+            hasher.update(&buf[..n]);
         }
         pb.finish_and_clear();
         let hash = hasher.finalize();
         Ok(HashResult {
             filename: path.display().to_string(),
-            hash: Some(bytes_to_hash(&hash)),
+            hash: Some(hex::encode(hash)),
             error: None,
         })
     }
@@ -254,7 +239,7 @@ fn check<T: Digest>(path: &Path, progress: bool, mmap: bool) -> Result<CheckResu
                     "xxh64" => hash_file::<Xxh64>(Path::new(filename), progress, mmap),
                     "xxh3_64" => hash_file::<Xxh3_64>(Path::new(filename), progress, mmap),
                     "xxh3_128" => hash_file::<Xxh3_128>(Path::new(filename), progress, mmap),
-                    _ => panic!("Unsupported hash algorithm: {}", algo),
+                    _ => Err(anyhow!("Unsupported hash algorithm: {}", algo)),
                 };
             } else {
                 result = hash_file::<T>(Path::new(filename), progress, mmap);
@@ -360,17 +345,19 @@ fn process_non_stdin(args: Args) -> Result<()> {
     let file = PathBuf::from(args.file.filename());
     let walker = get_walker(
         &file,
-        args.exclude,
-        args.include,
-        args.max_depth,
-        args.max_filesize,
-        args.follow_links,
-        args.hidden,
-        args.no_ignore,
-        args.no_gitignore,
-        args.no_git_exclude,
-        args.no_global_gitignore,
-        args.no_parents,
+        WalkerOptions {
+            exclude: args.exclude,
+            include: args.include,
+            max_depth: args.max_depth,
+            max_filesize: args.max_filesize,
+            follow_links: args.follow_links,
+            hidden: args.hidden,
+            no_ignore: args.no_ignore,
+            no_gitignore: args.no_gitignore,
+            no_git_exclude: args.no_git_exclude,
+            no_global_gitignore: args.no_global_gitignore,
+            no_parents: args.no_parents,
+        },
     )?;
 
     if args.check {
@@ -388,7 +375,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
             "xxh64" => check::<Xxh64>(&file, !args.no_progress, !args.no_mmap),
             "xxh3_64" => check::<Xxh3_64>(&file, !args.no_progress, !args.no_mmap),
             "xxh3_128" => check::<Xxh3_128>(&file, !args.no_progress, !args.no_mmap),
-            _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
+            _ => Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm)),
         };
         match check_result {
             Ok(result) => {
@@ -534,7 +521,7 @@ fn process_non_stdin(args: Args) -> Result<()> {
                 args.algorithm.as_str(),
                 args.legacy,
             ),
-            _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
+            _ => Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm))?,
         };
         match result {
             Ok(res) => {
@@ -564,7 +551,7 @@ fn process_stdin(args: Args) -> Result<()> {
         "xxh64" => hash_text::<Xxh64>(args.file.contents_untrimmed()?)?,
         "xxh3_64" => hash_text::<Xxh3_64>(args.file.contents_untrimmed()?)?,
         "xxh3_128" => hash_text::<Xxh3_128>(args.file.contents_untrimmed()?)?,
-        _ => panic!("Unsupported hash algorithm: {}", args.algorithm),
+        _ => Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm))?,
     };
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());
     Ok(())
@@ -613,10 +600,20 @@ mod tests {
         let file = PathBuf::from(base_path + "/tests/test.txt");
         for i in 0..TEST_ALGOS.len() {
             let algorithm = TEST_ALGOS[i];
-            let walker = get_walker(
-                &file, None, None, None, None, true, true, false, false, false, false, false,
-            )
-            .unwrap();
+            let opts = WalkerOptions {
+                no_git_exclude: false,
+                exclude: None,
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: true,
+                hidden: true,
+                no_ignore: false,
+                no_gitignore: false,
+                no_global_gitignore: false,
+                no_parents: false,
+            };
+            let walker = get_walker(&file, opts).unwrap();
             let result = match algorithm {
                 "md5" => hash_and_walk::<md5::Md5>(walker, false, true, &algorithm, false),
                 "sha1" => hash_and_walk::<sha1::Sha1>(walker, false, true, &algorithm, false),
@@ -637,7 +634,7 @@ mod tests {
                 "xxh64" => hash_and_walk::<Xxh64>(walker, false, true, &algorithm, false),
                 "xxh3_64" => hash_and_walk::<Xxh3_64>(walker, false, true, &algorithm, false),
                 "xxh3_128" => hash_and_walk::<Xxh3_128>(walker, false, true, &algorithm, false),
-                _ => panic!("Unsupported hash algorithm: {}", algorithm),
+                _ => Err(anyhow!("Unsupported hash algorithm: {}", algorithm)),
             };
             let result = result.unwrap();
             let hash_result = result.get(0).unwrap();
@@ -665,7 +662,7 @@ mod tests {
                 "xxh64" => check::<Xxh64>(&file, false, true),
                 "xxh3_64" => check::<Xxh3_64>(&file, false, true),
                 "xxh3_128" => check::<Xxh3_128>(&file, false, true),
-                _ => panic!("Unsupported hash algorithm: {}", algorithm),
+                _ => Err(anyhow!("Unsupported hash algorithm: {}", algorithm)),
             };
             let check_result = result.unwrap();
             assert_eq!(check_result.hash_fail, 0);
@@ -696,7 +693,7 @@ mod tests {
                 "xxh64" => hash_text::<Xxh64>(test_txt.clone()),
                 "xxh3_64" => hash_text::<Xxh3_64>(test_txt.clone()),
                 "xxh3_128" => hash_text::<Xxh3_128>(test_txt.clone()),
-                _ => panic!("Unsupported hash algorithm: {}", algorithm),
+                _ => Err(anyhow!("Unsupported hash algorithm: {}", algorithm)),
             };
             let hash = result.unwrap();
             assert_eq!(hash, String::from(VALUES[i]));
@@ -724,6 +721,13 @@ mod tests {
             false,
         )
         .unwrap();
+
+        let result_unsupported = check::<sha2::Sha256>(
+            PathBuf::from(base_path.clone() + "/tests/test.unsupported").as_path(),
+            false,
+            false,
+        )
+        .unwrap();
         let control_fail = CheckResult {
             total: 1,
             mismatch: 1,
@@ -745,10 +749,18 @@ mod tests {
             hash_fail: 1,
             invalid: 0,
         };
+        let control_unsupported = CheckResult {
+            total: 1,
+            mismatch: 0,
+            read_fail: 0,
+            hash_fail: 1,
+            invalid: 0,
+        };
 
         assert_eq!(result_fail, control_fail);
         assert_eq!(result_invalid, control_invalid);
         assert_eq!(result_hashfail, control_hashfail);
+        assert_eq!(result_unsupported, control_unsupported);
     }
 
     #[test]
@@ -758,17 +770,19 @@ mod tests {
         let exclude = vec![String::from("test*")];
         let walker = get_walker(
             &file,
-            Some(exclude),
-            None,
-            None,
-            None,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
+            WalkerOptions {
+                exclude: Some(exclude),
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: true,
+                hidden: true,
+                no_git_exclude: false,
+                no_gitignore: false,
+                no_global_gitignore: false,
+                no_ignore: false,
+                no_parents: false,
+            },
         )
         .unwrap();
 
@@ -786,17 +800,19 @@ mod tests {
         let include = vec![String::from("*.blake3")];
         let walker = get_walker(
             &file,
-            Some(exclude),
-            Some(include),
-            None,
-            None,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
+            WalkerOptions {
+                exclude: Some(exclude),
+                include: Some(include),
+                max_depth: None,
+                max_filesize: None,
+                follow_links: true,
+                hidden: true,
+                no_git_exclude: false,
+                no_gitignore: false,
+                no_global_gitignore: false,
+                no_ignore: false,
+                no_parents: false,
+            },
         )
         .unwrap();
 
@@ -811,10 +827,20 @@ mod tests {
         use tempfile::NamedTempFile;
         let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
         let file = PathBuf::from(base_path + "/tests");
-        let walker = get_walker(
-            &file, None, None, None, None, true, true, false, false, false, false, false,
-        )
-        .unwrap();
+        let opts = WalkerOptions {
+            no_git_exclude: false,
+            exclude: None,
+            include: None,
+            max_depth: None,
+            max_filesize: None,
+            follow_links: true,
+            hidden: true,
+            no_ignore: false,
+            no_gitignore: false,
+            no_global_gitignore: false,
+            no_parents: false,
+        };
+        let walker = get_walker(&file, opts).unwrap();
 
         // Algo isn't important here
         let result =
