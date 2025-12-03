@@ -9,10 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-rust
     container:
-      image: ${{ CUSTOM_IMAGE_URL }}
+      image: ${{ secrets.CUSTOM_IMAGE_URL }}
       credentials:
-        username: ${{ CUSTOM_IMAGE_USERNAME }}
-        password: ${{ CUSTOM_IMAGE_PASSWORD }}
+        username: ${{ secrets.CUSTOM_IMAGE_USERNAME }}
+        password: ${{ secrets.CUSTOM_IMAGE_PASSWORD }}
       options: "--security-opt seccomp=unconfined"
     steps:
       - name: Checkout
