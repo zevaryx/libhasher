@@ -8,6 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-rust
+    container:
+      image: ${{ CUSTOM_IMAGE_URL }}
+      credentials:
+        username: ${{ CUSTOM_IMAGE_USERNAME }}
+        password: ${{ CUSTOM_IMAGE_PASSWORD }}
+      options: "--security-opt seccomp=unconfined"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
