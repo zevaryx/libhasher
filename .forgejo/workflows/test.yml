@@ -9,10 +9,7 @@ jobs:
   test:
     runs-on: docker
     container:
-      image: "${{ secrets.CUSTOM_IMAGE_URL }}"
-      credentials:
-        username: "${{ secrets.CUSTOM_IMAGE_USERNAME }}"
-        password: "${{ secrets.CUSTOM_IMAGE_PASSWORD }}"
+      image: zevaryx/rustcross:latest
       options: "--security-opt seccomp=unconfined"
     steps:
       - name: Checkout
