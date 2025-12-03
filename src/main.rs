@@ -667,7 +667,7 @@ fn process_non_stdin(args: &Args) -> Result<()> {
         match result {
             Ok(res) => {
                 if let Some(path) = &args.output {
-                    write_results(&path, &res, args.algorithm.as_str(), args.legacy)?
+                    write_results(path, &res, args.algorithm.as_str(), args.legacy)?
                 }
                 Ok(())
             }
@@ -711,12 +711,11 @@ pub fn main() -> ExitCode {
         args.status = false;
     }
     let is_stdin = args.file.is_stdin();
-    let res: Result<()>;
-    if is_stdin {
-        res = process_stdin(&args);
+    let res: Result<()> = if is_stdin {
+        process_stdin(&args)
     } else {
-        res = process_non_stdin(&args);
-    }
+        process_non_stdin(&args)
+    };
 
     match res {
         Ok(()) => ExitCode::SUCCESS,
