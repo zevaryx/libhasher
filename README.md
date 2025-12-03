@@ -18,6 +18,8 @@ Options:
       --no-mmap                      Disable mmap in blake3. Also disables the progress bar for blake3
       --no-progress                  Disable progress bar
   -c, --check                        Switch to hashsum check mode. File must be a hashsum file
+  -q, --quiet                        Don't print OK for each successfully verified file
+  -s, --status                       Only return status code
       --exclude <EXCLUDE>            Add a path to ignore
       --include <INCLUDE>            Add a path to include
       --max-depth <MAX_DEPTH>        Max recursion depth
