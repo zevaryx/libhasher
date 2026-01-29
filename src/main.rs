@@ -88,6 +88,13 @@ struct Args {
 
     #[arg(long, help = "Legacy format (don't print algorithm)")]
     legacy: bool,
+
+    #[arg(
+        long,
+        help = "How many hashes to buffer before writing to file",
+        default_value = "10000"
+    )]
+    buffer_size: usize,
 }
 #[derive(Debug)]
 pub struct WalkerOptions {
@@ -306,6 +313,7 @@ fn check<T: Digest>(
     Ok(result)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn hash_and_walk<T: Digest>(
     walker: Walk,
     progress: bool,
@@ -314,6 +322,8 @@ fn hash_and_walk<T: Digest>(
     legacy: bool,
     status: bool,
     quiet: bool,
+    path: Option<PathBuf>,
+    queue_size: usize,
 ) -> Result<Vec<HashResult>> {
     let mut hash_results: Vec<HashResult> = Vec::new();
     for entry in walker.map_while(Result::ok) {
@@ -339,14 +349,34 @@ fn hash_and_walk<T: Digest>(
                 );
             }
             hash_results.push(result);
+            if hash_results.len() > queue_size {
+                if let Some(p) = &path {
+                    write_results(p, &hash_results, algo, legacy, true)?;
+                }
+                hash_results.clear();
+            }
         }
+    }
+
+    if let Some(p) = &path {
+        write_results(p, &hash_results, algo, legacy, true)?;
     }
 
     Ok(hash_results)
 }
 
-fn write_results(path: &Path, results: &Vec<HashResult>, algo: &str, legacy: bool) -> Result<()> {
-    let file = File::create(path)?;
+fn write_results(
+    path: &Path,
+    results: &Vec<HashResult>,
+    algo: &str,
+    legacy: bool,
+    append: bool,
+) -> Result<()> {
+    let file: File = if !path.is_file() || !append {
+        File::create(path)?
+    } else {
+        File::open(path)?
+    };
     let mut file = BufWriter::new(file);
 
     for res in results {
@@ -544,7 +574,7 @@ fn process_non_stdin(args: &Args) -> Result<()> {
             Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
         }
     } else {
-        let result = match args.algorithm.as_str() {
+        let _ = match args.algorithm.as_str() {
             "md5" => hash_and_walk::<md5::Md5>(
                 walker,
                 !args.no_progress,
@@ -553,7 +583,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "sha1" => hash_and_walk::<sha1::Sha1>(
                 walker,
                 !args.no_progress,
@@ -562,7 +594,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "sha256" => hash_and_walk::<sha2::Sha256>(
                 walker,
                 !args.no_progress,
@@ -571,7 +605,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "sha512" => hash_and_walk::<sha2::Sha512>(
                 walker,
                 !args.no_progress,
@@ -580,7 +616,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "sha3_256" => hash_and_walk::<sha3::Sha3_256>(
                 walker,
                 !args.no_progress,
@@ -589,7 +627,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "sha3_512" => hash_and_walk::<sha3::Sha3_512>(
                 walker,
                 !args.no_progress,
@@ -598,7 +638,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "blake2" => hash_and_walk::<blake2::Blake2b512>(
                 walker,
                 !args.no_progress,
@@ -607,7 +649,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "blake3" => hash_and_walk::<blake3::Hasher>(
                 walker,
                 !args.no_progress,
@@ -616,7 +660,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "fnv" => hash_and_walk::<Fnv>(
                 walker,
                 !args.no_progress,
@@ -625,7 +671,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "xxh32" => hash_and_walk::<Xxh32>(
                 walker,
                 !args.no_progress,
@@ -634,7 +682,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "xxh64" => hash_and_walk::<Xxh64>(
                 walker,
                 !args.no_progress,
@@ -643,7 +693,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "xxh3_64" => hash_and_walk::<Xxh3_64>(
                 walker,
                 !args.no_progress,
@@ -652,7 +704,9 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             "xxh3_128" => hash_and_walk::<Xxh3_128>(
                 walker,
                 !args.no_progress,
@@ -661,18 +715,13 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                 args.legacy,
                 args.quiet,
                 args.status,
-            ),
+                args.output.clone(),
+                args.buffer_size,
+            )?,
             _ => Err(anyhow!("Unsupported hash algorithm: {}", args.algorithm))?,
         };
-        match result {
-            Ok(res) => {
-                if let Some(path) = &args.output {
-                    write_results(path, &res, args.algorithm.as_str(), args.legacy)?
-                }
-                Ok(())
-            }
-            Err(e) => Err(anyhow!("Failed to hash file(s): {}", e)),
-        }
+
+        Ok(())
     }
 }
 
@@ -775,43 +824,45 @@ mod tests {
             };
             let walker = get_walker(&file, opts).unwrap();
             let result = match algorithm {
-                "md5" => {
-                    hash_and_walk::<md5::Md5>(walker, false, true, &algorithm, false, false, false)
-                }
-                "sha1" => {
-                    hash_and_walk::<sha1::Sha1>(walker, false, true, &algorithm, false, true, true)
-                }
+                "md5" => hash_and_walk::<md5::Md5>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
+                "sha1" => hash_and_walk::<sha1::Sha1>(
+                    walker, false, true, &algorithm, false, true, true, None, 100,
+                ),
                 "sha256" => hash_and_walk::<sha2::Sha256>(
-                    walker, false, true, &algorithm, true, true, false,
+                    walker, false, true, &algorithm, true, true, false, None, 100,
                 ),
                 "sha512" => hash_and_walk::<sha2::Sha512>(
-                    walker, false, true, &algorithm, false, false, true,
+                    walker, false, true, &algorithm, false, false, true, None, 100,
                 ),
                 "sha3_256" => hash_and_walk::<sha3::Sha3_256>(
-                    walker, false, true, &algorithm, false, false, false,
+                    walker, false, true, &algorithm, false, false, false, None, 100,
                 ),
                 "sha3_512" => hash_and_walk::<sha3::Sha3_512>(
-                    walker, false, true, &algorithm, false, false, false,
+                    walker, false, true, &algorithm, false, false, false, None, 100,
                 ),
                 "blake2" => hash_and_walk::<blake2::Blake2b512>(
-                    walker, false, true, &algorithm, false, false, false,
+                    walker, false, true, &algorithm, false, false, false, None, 100,
                 ),
                 "blake3" => hash_and_walk::<blake3::Hasher>(
-                    walker, false, true, &algorithm, false, false, false,
+                    walker, false, true, &algorithm, false, false, false, None, 100,
                 ),
-                "fnv" => hash_and_walk::<Fnv>(walker, false, true, &algorithm, false, false, false),
-                "xxh32" => {
-                    hash_and_walk::<Xxh32>(walker, false, true, &algorithm, false, false, false)
-                }
-                "xxh64" => {
-                    hash_and_walk::<Xxh64>(walker, false, true, &algorithm, false, false, false)
-                }
-                "xxh3_64" => {
-                    hash_and_walk::<Xxh3_64>(walker, false, true, &algorithm, false, false, false)
-                }
-                "xxh3_128" => {
-                    hash_and_walk::<Xxh3_128>(walker, false, true, &algorithm, false, false, false)
-                }
+                "fnv" => hash_and_walk::<Fnv>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
+                "xxh32" => hash_and_walk::<Xxh32>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
+                "xxh64" => hash_and_walk::<Xxh64>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
+                "xxh3_64" => hash_and_walk::<Xxh3_64>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
+                "xxh3_128" => hash_and_walk::<Xxh3_128>(
+                    walker, false, true, &algorithm, false, false, false, None, 100,
+                ),
                 _ => Err(anyhow!("Unsupported hash algorithm: {}", algorithm)),
             };
             let result = result.unwrap();
@@ -973,9 +1024,10 @@ mod tests {
         .unwrap();
 
         // Algo isn't important here
-        let result =
-            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false, false, false)
-                .unwrap();
+        let result = hash_and_walk::<blake3::Hasher>(
+            walker, false, false, "blake3", false, false, false, None, 1,
+        )
+        .unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -1004,9 +1056,10 @@ mod tests {
         .unwrap();
 
         // Algo isn't important here
-        let result =
-            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false, false, false)
-                .unwrap();
+        let result = hash_and_walk::<blake3::Hasher>(
+            walker, false, false, "blake3", false, false, false, None, 100,
+        )
+        .unwrap();
         assert_eq!(result.len(), 1);
     }
 
@@ -1031,13 +1084,54 @@ mod tests {
         let walker = get_walker(&file, opts).unwrap();
 
         // Algo isn't important here
-        let result =
-            hash_and_walk::<blake3::Hasher>(walker, false, false, "blake3", false, false, false)
-                .unwrap();
+        let result = hash_and_walk::<blake3::Hasher>(
+            walker, false, false, "blake3", false, false, false, None, 100,
+        )
+        .unwrap();
         let output = NamedTempFile::new().unwrap();
 
-        write_results(output.path(), &result, "blake3", false).unwrap();
-        write_results(output.path(), &result, "blake3", true).unwrap();
+        write_results(output.path(), &result, "blake3", false, false).unwrap();
+        write_results(output.path(), &result, "blake3", true, false).unwrap();
+        
+        let result = check::<blake3::Hasher>(output.path(), false, true, true, false);
         output.close().unwrap();
+
+        assert!(result.is_ok());
+        
+    }
+
+    #[test]
+    fn test_inline_output() {
+        use tempfile::NamedTempFile;
+        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let file = PathBuf::from(base_path + "/tests");
+        let opts = WalkerOptions {
+            no_git_exclude: false,
+            exclude: None,
+            include: None,
+            max_depth: None,
+            max_filesize: None,
+            follow_links: true,
+            hidden: true,
+            no_ignore: false,
+            no_gitignore: false,
+            no_global_gitignore: false,
+            no_parents: false,
+        };
+        let walker = get_walker(&file, opts).unwrap();
+
+        // Algo isn't important here
+        let output = NamedTempFile::new().unwrap();
+
+        let _ = hash_and_walk::<blake3::Hasher>(
+            walker, false, false, "blake3", false, false, false, Some(output.path().to_owned()), 100,
+        )
+        .unwrap();
+        
+        let result = check::<blake3::Hasher>(output.path(), false, true, true, false);
+        output.close().unwrap();
+
+        assert!(result.is_ok());
+        
     }
 }
