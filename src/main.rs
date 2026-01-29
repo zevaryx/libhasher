@@ -10,7 +10,7 @@ use noncrypto_digests::{Fnv, Xxh32, Xxh3_128, Xxh3_64, Xxh64};
 use std::process::ExitCode;
 use std::{
     any::type_name,
-    fs::{self, File},
+    fs::{self, OpenOptions},
     io::{self, BufRead, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
@@ -372,11 +372,11 @@ fn write_results(
     legacy: bool,
     append: bool,
 ) -> Result<()> {
-    let file: File = if !path.is_file() || !append {
-        File::create(path)?
-    } else {
-        File::open(path)?
-    };
+    let file = OpenOptions::new()
+        .write(true)
+        .append(append)
+        .create(true)
+        .open(path)?;
     let mut file = BufWriter::new(file);
 
     for res in results {
