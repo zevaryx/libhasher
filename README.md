@@ -34,6 +34,7 @@ Options:
       --no-global-gitignore          Ignore global gitignore files
       --no-parents                   Ignore parent directory ignore files
       --legacy                       Legacy format (don't print algorithm)
+      --buffer-size <BUFFER_SIZE>    How many hashes to buffer before writing to file [default: 10000]
   -h, --help                         Print help
   -V, --version                      Print version
   ```
