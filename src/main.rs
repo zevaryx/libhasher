@@ -1092,12 +1092,11 @@ mod tests {
 
         write_results(output.path(), &result, "blake3", false, false).unwrap();
         write_results(output.path(), &result, "blake3", true, false).unwrap();
-        
+
         let result = check::<blake3::Hasher>(output.path(), false, true, true, false);
         output.close().unwrap();
 
         assert!(result.is_ok());
-        
     }
 
     #[test]
@@ -1124,14 +1123,21 @@ mod tests {
         let output = NamedTempFile::new().unwrap();
 
         let _ = hash_and_walk::<blake3::Hasher>(
-            walker, false, false, "blake3", false, false, false, Some(output.path().to_owned()), 100,
+            walker,
+            false,
+            false,
+            "blake3",
+            false,
+            false,
+            false,
+            Some(output.path().to_owned()),
+            100,
         )
         .unwrap();
-        
+
         let result = check::<blake3::Hasher>(output.path(), false, true, true, false);
         output.close().unwrap();
 
         assert!(result.is_ok());
-        
     }
 }
