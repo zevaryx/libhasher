@@ -47,6 +47,14 @@ You can also use hasher inline:
 
 ## Installing
 
+### Linux (and potentially macOS)
+
 Run the following:
 
 `curl --proto '=https' --tlsv1.2 -sSf https://git.zevaryx.com/zevaryx/hasher-rs/raw/branch/main/install.sh | sh`
+
+### Windows
+
+1. Download the latest `hasher.exe` from [the releases page](https://git.zevaryx.com/zevaryx/hasher-rs/releases/latest/)
+2. Place somewhere already on your path (or modify your path to add the location)
+   - I recommend `C:\tools\bin` or `C:\Users\<username>\.local\bin`
