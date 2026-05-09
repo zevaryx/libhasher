@@ -88,14 +88,14 @@ pub struct Hasher {
 
 impl Hasher {
     /// Create a hasher for the given algorithm if it's supported
-    /// 
+    ///
     /// Will raise an error on an unsupported algorithm
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
-    /// 
+    ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// ```
     pub fn new(algo: &str) -> Result<Self> {
@@ -121,12 +121,12 @@ impl Hasher {
 
     /// A low-level way to directly update the internal hasher.
     /// Only use if you know what you're doing!
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
-    /// 
+    ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// hasher.update("Hello, World".as_bytes());
     /// ```
@@ -136,13 +136,13 @@ impl Hasher {
 
     /// A low-level way to directly finalize the internal hasher.
     /// Only use if you know what you're doing!
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
     /// use hex;
-    /// 
+    ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// hasher.update("Hello, World".as_bytes());
     /// let hash = hasher.finalize();
@@ -153,15 +153,15 @@ impl Hasher {
     }
 
     /// High-level way to hash text
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
-    /// 
+    ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// let result = hasher.hash_text(String::from("Hello, World")).unwrap();
-    /// 
+    ///
     /// println!("{}", result);
     /// ```
     pub fn hash_text(&mut self, text: String) -> Result<String> {
@@ -170,8 +170,8 @@ impl Hasher {
     }
 
     /// An internal way to hash a file with Blake3's mmap and rayon features
-    /// 
-    /// Not publicly exposed, but accessible if `mmap` is set to `true` on 
+    ///
+    /// Not publicly exposed, but accessible if `mmap` is set to `true` on
     /// `hash_file` or `hash_file_progressbar`
     fn hash_file_mmap(&mut self, path: &Path) -> Result<HashResult> {
         self.hasher.update_mmap_rayon(path)?;
@@ -183,25 +183,26 @@ impl Hasher {
     }
 
     /// Hash a file with an exposed progress bar. Useful for large files
-    /// 
+    ///
     /// Hashes a `path`, optionally showing `progress`. Allows you to use
     /// the Blake3 `mmap` feature as well.
-    /// 
-    /// If the Hasher's algorithm does not support `mmap` (only blake3 supports `mmap`), 
+    ///
+    /// If the Hasher's algorithm does not support `mmap` (only blake3 supports `mmap`),
     /// it will quietly fall back to not using it
-    /// 
+    ///
     /// If `min_len` is specified, a progress bar will not display unless the file
-    /// is larger than `min_len` bytes, default 256MB 
-    /// 
+    /// is larger than `min_len` bytes, default 256MB
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
-    /// 
+    /// use std::path::PathBuf;
+    ///
     /// // We'll use SHA256 this time
     /// let mut hasher = Hasher::new("sha256").unwrap();
-    /// let result = hasher.hash_file_progressbar(Path::from("path/to/large/file"), true, true, None).unwrap();
-    /// 
+    /// let result = hasher.hash_file_progressbar(&PathBuf::from("Cargo.toml"), true, true, None).unwrap();
+    ///
     /// println!("{}", result.hash);
     /// ```
     pub fn hash_file_progressbar(
@@ -237,22 +238,23 @@ impl Hasher {
         })
     }
 
-   /// Hash a file with an exposed progress bar. Useful for large files
-    /// 
+    /// Hash a file with an exposed progress bar. Useful for large files
+    ///
     /// Hashes a `path`. Allows you to use the Blake3 `mmap` feature as well.
-    /// 
-    /// If the Hasher's algorithm does not support `mmap` (only blake3 supports `mmap`), 
+    ///
+    /// If the Hasher's algorithm does not support `mmap` (only blake3 supports `mmap`),
     /// it will quietly fall back to not using it
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use hasher::Hasher;
-    /// 
+    /// use std::path::PathBuf;
+    ///
     /// // We'll use SHA256 this time
     /// let mut hasher = Hasher::new("sha256").unwrap();
-    /// let result = hasher.hash_file(Path::from("path/to/large/file"), true).unwrap();
-    /// 
+    /// let result = hasher.hash_file(&PathBuf::from("Cargo.toml"), true).unwrap();
+    ///
     /// println!("{}", result.hash);
     /// ```
     pub fn hash_file(&mut self, path: &Path, mmap: bool) -> Result<HashResult> {
