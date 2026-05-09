@@ -1,6 +1,6 @@
 [package]
 name = "hasher"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2021"
 
 [profile.release]
@@ -9,24 +9,27 @@ strip="symbols"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 blake2 = "0.10.6"
-blake3 = { version = "1.8.3", features = ["rayon", "mmap", "traits-preview"] }
-clap = { version = "4.5.56", features = ["derive"] }
+blake3 = { version = "1.8.5", features = ["rayon", "mmap", "traits-preview"] }
+clap = { version = "4.6.1", features = ["derive"] }
 colored = "3.1.1"
 digest = { version = "0.10.7", features = ["alloc"] }
-md-5 = "0.10.6"
-sha1 = "0.10.6"
-sha2 = "0.10.9"
-sha3 = "0.10.8"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+sha3 = "0.10"
 noncrypto-digests = "0.3.7"
-indicatif = "0.18.3"
+indicatif = "0.18.4"
 clap-stdin = { git = "https://git.zevaryx.com/zevaryx/clap-stdin", features = ["clap"] }
 ignore = "0.4.25"
 hex = "0.4.3"
 
 [dev-dependencies]
-tempfile = "3.24.0"
+tempfile = "3.27.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+
+[[bin]]
+name = "hasher"
