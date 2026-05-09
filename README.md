@@ -47,11 +47,15 @@ You can also use hasher inline:
 
 ## Installing
 
-### Linux (and potentially macOS)
+### Linux
 
 Run the following:
 
 `curl --proto '=https' --tlsv1.2 -sSf https://git.zevaryx.com/zevaryx/hasher-rs/raw/branch/main/install.sh | sh`
+
+### macOS
+
+In theory, you can simply download and modify the Linux install script to install on macOS, but I do not have a mac to test on
 
 ### Windows
 
