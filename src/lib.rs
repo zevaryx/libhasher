@@ -12,7 +12,7 @@ pub struct HashResult {
 
 fn get_progress_bar(progress: bool, len: u64, path: &Path, min_len: Option<u64>) -> ProgressBar {
     // Set a minimum size of 256MB
-    let min_len = min_len.map_or(256 * 1024 * 1024_u64, |x| x);
+    let min_len = min_len.unwrap_or(256 * 1024 * 1024_u64);
     if progress && len >= min_len {
         let pb = ProgressBar::new(len);
         pb.set_message(path.display().to_string());
@@ -57,7 +57,7 @@ impl DynHasher for Blake3Hasher {
         self.0.update(data);
     }
     fn finalize(&mut self) -> Vec<u8> {
-        let digest = self.0.clone().finalize();
+        let digest = self.0.finalize();
         self.0.reset();
         digest.as_bytes().to_vec()
     }
@@ -160,11 +160,12 @@ impl Hasher {
     /// use hasher::Hasher;
     ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
-    /// let result = hasher.hash_text(String::from("Hello, World")).unwrap();
+    /// // This can also be an `&String`
+    /// let result = hasher.hash_text("Hello, World").unwrap();
     ///
     /// println!("{}", result);
     /// ```
-    pub fn hash_text(&mut self, text: String) -> Result<String> {
+    pub fn hash_text(&mut self, text: &str) -> Result<String> {
         self.update(text.as_bytes());
         Ok(hex::encode(self.finalize()))
     }
@@ -180,6 +181,21 @@ impl Hasher {
             filename: path.display().to_string(),
             hash: hex::encode(hash),
         })
+    }
+
+    /// Internal hasher. Separating the hashing from the functions provides better maintainability
+    fn hash_reader(&mut self, reader: &mut impl Read, pb: &ProgressBar) -> Result<Vec<u8>> {
+        let mut buf = [0u8; 65536];
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            pb.inc(n as u64);
+            self.update(&buf[..n])
+        }
+        pb.finish_and_clear();
+        Ok(self.finalize())
     }
 
     /// Hash a file with an exposed progress bar. Useful for large files
@@ -217,21 +233,11 @@ impl Hasher {
                 return Ok(result);
             }
         }
+
         let mut file = fs::File::open(path)?;
-        let mut buf = [0u8; 8192];
-
         let pb = get_progress_bar(progress, file.metadata()?.len(), path, min_len);
+        let hash = self.hash_reader(&mut file, &pb)?;
 
-        loop {
-            let n = file.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            pb.inc(n as u64);
-            self.update(&buf[..n]);
-        }
-        pb.finish_and_clear();
-        let hash = self.finalize();
         Ok(HashResult {
             filename: path.display().to_string(),
             hash: hex::encode(hash),
@@ -263,17 +269,10 @@ impl Hasher {
                 return Ok(result);
             }
         }
-        let mut file = fs::File::open(path)?;
-        let mut buf = [0u8; 8192];
 
-        loop {
-            let n = file.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            self.update(&buf[..n]);
-        }
-        let hash = self.finalize();
+        let mut file = fs::File::open(path)?;
+        let hash = self.hash_reader(&mut file, &ProgressBar::hidden())?;
+
         Ok(HashResult {
             filename: path.display().to_string(),
             hash: hex::encode(hash),
@@ -286,59 +285,71 @@ mod tests {
     use super::*;
     use std::{env, path::PathBuf};
 
-    static TEST_ALGOS: &[&str] = &[
-        "blake3", "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "blake2", "xxh3_128",
-        "xxh3_64", "xxh64", "xxh32", "fnv",
+    // We are only checking algorithms located in this file
+    static TEST_CASES: &[(&str, &str)] = &[
+        ("blake3", "68569ddf344009b938e1db0ec39b151b1626cfe46a87c3910dc18936a233f92b"),
+        ("md5", "0cbc6611f5540bd0809a388dc95a615b"),
+        ("sha1", "640ab2bae07bedc4c163f679a746f7ab7fb5d1fa"),
+        ("sha256", "532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25"),
+        ("sha512", "c6ee9e33cf5c6715a1d148fd73f7318884b41adcb916021e2bc0e800a5c5dd97f5142178f6ae88c8fdd98e1afb0ce4c8d2c54b5f37b30b7da1997bb33b0b8a31"),
+        ("sha3_256", "c0a5cca43b8aa79eb50e3464bc839dd6fd414fae0ddf928ca23dcebf8a8b8dd0"),
+        ("sha3_512", "301bb421c971fbb7ed01dcc3a9976ce53df034022ba982b97d0f27d48c4f03883aabf7c6bc778aa7c383062f6823045a6d41b8a720afbb8a9607690f89fbe1a7"),
+        ("blake2", "3d896914f86ae22c48b06140adb4492fa3f8e2686a83cec0c8b1dcd6903168751370078bbd6bbfe02a6ab1df12a19b5991b58e65e243ec279f6a5770b2dd0e31"),
+        ("xxh3_128", "391c8305c491690bc2da658a2d6348d5"),
+        ("xxh3_64", "b3f5bb77a55fad5e"),
+        ("xxh64", "da83efc38a8922b4"),
+        ("xxh32", "eac53571"),
+        ("fnv","2474e7fb1aec9f05"),
     ];
-    static VALUES: &[&str] = &[
-        "68569ddf344009b938e1db0ec39b151b1626cfe46a87c3910dc18936a233f92b",
-        "0cbc6611f5540bd0809a388dc95a615b",
-        "640ab2bae07bedc4c163f679a746f7ab7fb5d1fa",
-        "532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25",
-        "c6ee9e33cf5c6715a1d148fd73f7318884b41adcb916021e2bc0e800a5c5dd97f5142178f6ae88c8fdd98e1afb0ce4c8d2c54b5f37b30b7da1997bb33b0b8a31",
-        "c0a5cca43b8aa79eb50e3464bc839dd6fd414fae0ddf928ca23dcebf8a8b8dd0",
-        "301bb421c971fbb7ed01dcc3a9976ce53df034022ba982b97d0f27d48c4f03883aabf7c6bc778aa7c383062f6823045a6d41b8a720afbb8a9607690f89fbe1a7",
-        "3d896914f86ae22c48b06140adb4492fa3f8e2686a83cec0c8b1dcd6903168751370078bbd6bbfe02a6ab1df12a19b5991b58e65e243ec279f6a5770b2dd0e31",
-        "391c8305c491690bc2da658a2d6348d5",
-        "b3f5bb77a55fad5e",
-        "da83efc38a8922b4",
-        "eac53571",
-        "2474e7fb1aec9f05",
-    ];
+
+    fn get_test_file(name: &str) -> PathBuf {
+        let base = env::var("CARGO_MANIFEST_DIR").unwrap();
+        PathBuf::from(base).join("tests").join(name)
+    }
 
     #[test]
     fn test_hash_file() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let file = PathBuf::from(base_path + "/tests/test.txt");
-        for i in 0..TEST_ALGOS.len() {
-            let algorithm = TEST_ALGOS[i];
+        let file = get_test_file("test.txt");
+        for (algorithm, expected) in TEST_CASES {
             let mut hasher = Hasher::new(&algorithm).unwrap();
             let result = hasher.hash_file(&file, false).unwrap();
-            assert_eq!(result.hash.clone(), String::from(VALUES[i]));
+            assert_eq!(
+                result.hash, *expected,
+                "Hash mishmatch for algorithm: {algorithm}"
+            );
         }
     }
 
     #[test]
     fn test_hash_file_mmap() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let file = PathBuf::from(base_path + "/tests/test.txt");
-        let mut hasher = Hasher::new(TEST_ALGOS[0]).unwrap();
+        let file = get_test_file("test.txt");
+        let (algorithm, expected) = TEST_CASES[0];
+        let mut hasher = Hasher::new(algorithm).unwrap();
         let result = hasher.hash_file(&file, true).unwrap();
-        assert_eq!(result.hash.clone(), String::from(VALUES[0]));
+        assert_eq!(result.hash, *expected, "Hashing with mmap failed");
     }
 
     #[test]
     fn test_hash_file_progressbar() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let file = PathBuf::from(base_path + "/tests/test.txt");
-        let mut hasher = Hasher::new(TEST_ALGOS[0]).unwrap();
+        let file = get_test_file("test.txt");
+        let (algorithm, expected) = TEST_CASES[0];
+        let mut hasher = Hasher::new(algorithm).unwrap();
         let result = hasher
             .hash_file_progressbar(&file, true, false, Some(1))
             .unwrap();
-        assert_eq!(result.hash.clone(), String::from(VALUES[0]));
+        assert_eq!(result.hash, *expected, "Hashing with progress bar failed");
         let result = hasher
             .hash_file_progressbar(&file, false, false, Some(1))
             .unwrap();
-        assert_eq!(result.hash.clone(), String::from(VALUES[0]));
+        assert_eq!(
+            result.hash, *expected,
+            "Hashing without progress bar failed"
+        );
+    }
+
+    #[test]
+    fn test_unsupported_algorithm() {
+        let result = Hasher::new("md1");
+        assert!(result.is_err());
     }
 }

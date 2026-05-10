@@ -165,20 +165,19 @@ fn check(
     let mut unsupported: u64 = 0;
     let mut result: Result<HashResult>;
 
+    let mut main_hasher = Hasher::new(main_algo)?;
+
     let progress = progress && (!quiet && !status);
 
     for line in lines.map_while(Result::ok) {
-        if let [hash, filename, ..] =
-            &line.split("  ").map(String::from).collect::<Vec<String>>()[..]
-        {
+        let mut parts = line.splitn(2, "  ");
+        if let (Some(hash), Some(filename)) = (parts.next(), parts.next()) {
             total += 1;
             let mut proper_hash = hash.to_owned();
-
-            if let [algo, hash, ..] =
-                &hash.split(":").map(String::from).collect::<Vec<String>>()[..]
-            {
+            let mut hash_parts = hash.splitn(2, ":");
+            if let (Some(algo), Some(hash)) = (hash_parts.next(), hash_parts.next()) {
                 proper_hash = hash.to_owned();
-                let hasher = Hasher::new(algo.as_str());
+                let hasher = Hasher::new(algo);
                 if let Ok(mut h) = hasher {
                     result = h.hash_file_progressbar(Path::new(filename), progress, mmap, None);
                 } else {
@@ -194,8 +193,8 @@ fn check(
                     continue;
                 }
             } else {
-                let mut hasher = Hasher::new(main_algo)?;
-                result = hasher.hash_file_progressbar(Path::new(filename), progress, mmap, None);
+                result =
+                    main_hasher.hash_file_progressbar(Path::new(filename), progress, mmap, None);
             }
             match result {
                 Ok(result) => {
@@ -243,7 +242,7 @@ fn hash_and_walk(
     legacy: bool,
     status: bool,
     quiet: bool,
-    path: Option<PathBuf>,
+    path: Option<&Path>,
     queue_size: usize,
 ) -> Result<Vec<HashResult>> {
     let mut hasher = Hasher::new(algo)?;
@@ -251,31 +250,33 @@ fn hash_and_walk(
     for entry in walker.map_while(Result::ok) {
         if entry.path().is_dir() {
             continue;
-        } else if entry.path().is_file() {
-            let result = hasher.hash_file_progressbar(
-                entry.path(),
-                progress && (!status && !quiet),
-                mmap,
-                None,
-            )?;
-            let hash = &result.hash;
-            if legacy {
-                println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-            } else {
-                println!(
-                    "{}:{}  {}",
-                    algo.bright_yellow(),
-                    hash.bright_green(),
-                    result.filename.bright_blue()
-                );
+        }
+        if !entry.path().is_file() {
+            continue;
+        }
+        let result = hasher.hash_file_progressbar(
+            entry.path(),
+            progress && (!status && !quiet),
+            mmap,
+            None,
+        )?;
+        let hash = &result.hash;
+        if legacy {
+            println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
+        } else {
+            println!(
+                "{}:{}  {}",
+                algo.bright_yellow(),
+                hash.bright_green(),
+                result.filename.bright_blue()
+            );
+        }
+        hash_results.push(result);
+        if hash_results.len() > queue_size {
+            if let Some(p) = &path {
+                write_results(p, &hash_results, algo, legacy, true)?;
             }
-            hash_results.push(result);
-            if hash_results.len() > queue_size {
-                if let Some(p) = &path {
-                    write_results(p, &hash_results, algo, legacy, true)?;
-                }
-                hash_results.clear();
-            }
+            hash_results.clear();
         }
     }
 
@@ -288,7 +289,7 @@ fn hash_and_walk(
 
 fn write_results(
     path: &Path,
-    results: &Vec<HashResult>,
+    results: &[HashResult],
     algo: &str,
     legacy: bool,
     append: bool,
@@ -399,7 +400,7 @@ fn process_non_stdin(args: &Args) -> Result<()> {
             args.legacy,
             args.quiet,
             args.status,
-            args.output.clone(),
+            args.output.as_deref(),
             args.buffer_size,
         )?;
         Ok(())
@@ -409,22 +410,21 @@ fn process_non_stdin(args: &Args) -> Result<()> {
 #[cfg(not(tarpaulin_include))]
 fn process_stdin(args: &Args) -> Result<()> {
     let mut hasher = Hasher::new(&args.algorithm)?;
-    let hash = hasher.hash_text(args.file.clone().contents_untrimmed()?)?;
+    let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());
     Ok(())
 }
 
 #[cfg(not(tarpaulin_include))]
 pub fn main() -> ExitCode {
-    let mut args = Args::parse();
+    let args = Args::parse();
     // We need to validate status and/or quiet
     if (args.status || args.quiet) && (!args.check || args.output.is_some()) {
-        println!(
+        eprintln!(
             "{}: quiet and status modes require check mode or output, ignoring",
-            "WARN".bright_red()
+            "ERROR".bright_red()
         );
-        args.quiet = false;
-        args.status = false;
+        return ExitCode::FAILURE;
     }
     let is_stdin = args.file.is_stdin();
     let res: Result<()> = if is_stdin {
@@ -450,32 +450,31 @@ mod tests {
     use std::env;
 
     // We are only checking algorithms located in this file
-    static TEST_ALGOS: &[&str] = &[
-        "md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512", "blake2", "blake3", "xxh3_128",
-        "xxh3_64", "xxh64", "xxh32", "fnv",
+    static TEST_CASES: &[(&str, &str)] = &[
+        ("blake3", "68569ddf344009b938e1db0ec39b151b1626cfe46a87c3910dc18936a233f92b"),
+        ("md5", "0cbc6611f5540bd0809a388dc95a615b"),
+        ("sha1", "640ab2bae07bedc4c163f679a746f7ab7fb5d1fa"),
+        ("sha256", "532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25"),
+        ("sha512", "c6ee9e33cf5c6715a1d148fd73f7318884b41adcb916021e2bc0e800a5c5dd97f5142178f6ae88c8fdd98e1afb0ce4c8d2c54b5f37b30b7da1997bb33b0b8a31"),
+        ("sha3_256", "c0a5cca43b8aa79eb50e3464bc839dd6fd414fae0ddf928ca23dcebf8a8b8dd0"),
+        ("sha3_512", "301bb421c971fbb7ed01dcc3a9976ce53df034022ba982b97d0f27d48c4f03883aabf7c6bc778aa7c383062f6823045a6d41b8a720afbb8a9607690f89fbe1a7"),
+        ("blake2", "3d896914f86ae22c48b06140adb4492fa3f8e2686a83cec0c8b1dcd6903168751370078bbd6bbfe02a6ab1df12a19b5991b58e65e243ec279f6a5770b2dd0e31"),
+        ("xxh3_128", "391c8305c491690bc2da658a2d6348d5"),
+        ("xxh3_64", "b3f5bb77a55fad5e"),
+        ("xxh64", "da83efc38a8922b4"),
+        ("xxh32", "eac53571"),
+        ("fnv","2474e7fb1aec9f05"),
     ];
-    static VALUES: &[&str] = &[
-        "0cbc6611f5540bd0809a388dc95a615b",
-        "640ab2bae07bedc4c163f679a746f7ab7fb5d1fa",
-        "532eaabd9574880dbf76b9b8cc00832c20a6ec113d682299550d7a6e0f345e25",
-        "c6ee9e33cf5c6715a1d148fd73f7318884b41adcb916021e2bc0e800a5c5dd97f5142178f6ae88c8fdd98e1afb0ce4c8d2c54b5f37b30b7da1997bb33b0b8a31",
-        "c0a5cca43b8aa79eb50e3464bc839dd6fd414fae0ddf928ca23dcebf8a8b8dd0",
-        "301bb421c971fbb7ed01dcc3a9976ce53df034022ba982b97d0f27d48c4f03883aabf7c6bc778aa7c383062f6823045a6d41b8a720afbb8a9607690f89fbe1a7",
-        "3d896914f86ae22c48b06140adb4492fa3f8e2686a83cec0c8b1dcd6903168751370078bbd6bbfe02a6ab1df12a19b5991b58e65e243ec279f6a5770b2dd0e31",
-        "68569ddf344009b938e1db0ec39b151b1626cfe46a87c3910dc18936a233f92b",
-        "391c8305c491690bc2da658a2d6348d5",
-        "b3f5bb77a55fad5e",
-        "da83efc38a8922b4",
-        "eac53571",
-        "2474e7fb1aec9f05",
-    ];
+
+    fn get_test_file(name: &str) -> PathBuf {
+        let base = env::var("CARGO_MANIFEST_DIR").unwrap();
+        PathBuf::from(base).join("tests").join(name)
+    }
 
     #[test]
     fn test_hash_file_progressbar() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
-        let file = PathBuf::from(base_path + "/tests/test.txt");
-        for i in 0..TEST_ALGOS.len() {
-            let algorithm = TEST_ALGOS[i];
+        let file = get_test_file("test.txt");
+        for (algorithm, expected) in TEST_CASES {
             let opts = WalkerOptions {
                 no_git_exclude: false,
                 exclude: None,
@@ -494,17 +493,18 @@ mod tests {
                 walker, true, true, &algorithm, false, false, false, None, 100,
             );
             let result = result.unwrap();
-            let hash_result = result.get(0).unwrap();
-            assert_eq!(hash_result.hash.clone(), String::from(VALUES[i]));
+            let hash_result = result.first().unwrap();
+            assert_eq!(
+                hash_result.hash, *expected,
+                "Hash mishmatch for algorithm: {algorithm}"
+            );
         }
     }
 
     #[test]
     fn test_check_file() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
-        for i in 0..TEST_ALGOS.len() {
-            let algorithm = TEST_ALGOS[i];
-            let file = PathBuf::from(base_path.clone() + "/tests/test.txt." + TEST_ALGOS[i]);
+        for (algorithm, _) in TEST_CASES {
+            let file = get_test_file(&("test.txt.".to_owned() + algorithm));
             let result = check(&algorithm.to_string(), &file, false, true, false, false);
             let check_result = result.unwrap();
             assert_eq!(check_result.hash_fail, 0);
@@ -518,39 +518,19 @@ mod tests {
     fn test_hash_text() {
         let test_txt = String::from("Test");
 
-        for i in 0..TEST_ALGOS.len() {
-            let algorithm = TEST_ALGOS[i];
+        for (algorithm, expected) in TEST_CASES {
             let mut hasher = Hasher::new(&algorithm.to_string()).unwrap();
-            let result = hasher.hash_text(test_txt.clone());
+            let result = hasher.hash_text(&test_txt);
             let hash = result.unwrap();
-            assert_eq!(hash, String::from(VALUES[i]));
+            assert_eq!(hash, *expected, "Hash mismatch for algorithm: {algorithm}");
         }
     }
 
     #[test]
-    fn test_errors() {
-        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
+    fn test_fail() {
         let result_fail = check(
             &"sha256".to_string(),
-            PathBuf::from(base_path.clone() + "/tests/test.fail").as_path(),
-            false,
-            false,
-            false,
-            false,
-        )
-        .unwrap();
-        let result_invalid = check(
-            &"sha256".to_string(),
-            PathBuf::from(base_path.clone() + "/tests/test.invalid").as_path(),
-            false,
-            false,
-            false,
-            false,
-        )
-        .unwrap();
-        let result_hashfail = check(
-            &"sha256".to_string(),
-            PathBuf::from(base_path.clone() + "/tests/test.hashfail").as_path(),
+            &get_test_file("test.fail"),
             false,
             false,
             false,
@@ -558,15 +538,6 @@ mod tests {
         )
         .unwrap();
 
-        let result_unsupported = check(
-            &"sha256".to_string(),
-            PathBuf::from(base_path.clone() + "/tests/test.unsupported").as_path(),
-            false,
-            false,
-            false,
-            false,
-        )
-        .unwrap();
         let control_fail = CheckResult {
             total: 1,
             mismatch: 1,
@@ -574,6 +545,25 @@ mod tests {
             invalid: 0,
             unsupported: 0,
         };
+
+        assert_eq!(
+            result_fail, control_fail,
+            "Failed to catch failures properly"
+        );
+    }
+
+    #[test]
+    fn test_invalid() {
+        let result_invalid = check(
+            &"sha256".to_string(),
+            &get_test_file("test.invalid"),
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
         let control_invalid = CheckResult {
             total: 1,
             mismatch: 0,
@@ -581,6 +571,25 @@ mod tests {
             invalid: 1,
             unsupported: 0,
         };
+
+        assert_eq!(
+            result_invalid, control_invalid,
+            "Failed to catch failures properly"
+        );
+    }
+
+    #[test]
+    fn test_hashfail() {
+        let result_hashfail = check(
+            &"sha256".to_string(),
+            &get_test_file("test.hashfail"),
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
         let control_hashfail = CheckResult {
             total: 1,
             mismatch: 0,
@@ -588,6 +597,25 @@ mod tests {
             invalid: 0,
             unsupported: 0,
         };
+
+        assert_eq!(
+            result_hashfail, control_hashfail,
+            "Failed to catch failed hashes properly"
+        );
+    }
+
+    #[test]
+    fn test_unsupported() {
+        let result_unsupported = check(
+            &"sha256".to_string(),
+            &get_test_file("test.unsupported"),
+            false,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
         let control_unsupported = CheckResult {
             total: 1,
             mismatch: 0,
@@ -596,10 +624,10 @@ mod tests {
             unsupported: 1,
         };
 
-        assert_eq!(result_fail, control_fail);
-        assert_eq!(result_invalid, control_invalid);
-        assert_eq!(result_hashfail, control_hashfail);
-        assert_eq!(result_unsupported, control_unsupported);
+        assert_eq!(
+            result_unsupported, control_unsupported,
+            "Failed to catch unsupported properly"
+        );
     }
 
     #[test]
@@ -628,7 +656,7 @@ mod tests {
         // Algo isn't important here
         let result =
             hash_and_walk(walker, false, false, "blake3", false, false, false, None, 1).unwrap();
-        assert_eq!(result.len(), 0);
+        assert_eq!(result.len(), 0, "Failed to exclude expected files");
     }
 
     #[test]
@@ -660,7 +688,7 @@ mod tests {
             walker, false, false, "blake3", true, false, false, None, 100,
         )
         .unwrap();
-        assert_eq!(result.len(), 1);
+        assert_eq!(result.len(), 1, "Failed to include expected files");
     }
 
     #[test]
@@ -701,9 +729,20 @@ mod tests {
             true,
             false,
         );
-        output.close().unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Failed to save to file as expected");
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        assert!(
+            contents.contains("blake3:"),
+            "Expected algo prefix in output"
+        );
+        assert!(
+            contents.lines().count() > 0,
+            "Output file should not be empty"
+        );
+
+        output.close().unwrap();
     }
 
     #[test]
@@ -737,7 +776,7 @@ mod tests {
             false,
             false,
             false,
-            Some(output.path().to_owned()),
+            Some(output.path()),
             100,
         )
         .unwrap();
@@ -750,8 +789,112 @@ mod tests {
             true,
             false,
         );
-        output.close().unwrap();
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Inline output failed");
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        assert!(
+            contents.contains("blake3:"),
+            "Expected algo prefix in output"
+        );
+        assert!(
+            contents.lines().count() > 0,
+            "Output file should not be empty"
+        );
+
+        output.close().unwrap();
+    }
+
+    #[test]
+    fn test_inline_output_buffer_flush() {
+        use tempfile::NamedTempFile;
+        let file = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("tests");
+        let walker = get_walker(
+            &file,
+            WalkerOptions {
+                exclude: None,
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: true,
+                hidden: true,
+                no_ignore: false,
+                no_gitignore: false,
+                no_git_exclude: false,
+                no_global_gitignore: false,
+                no_parents: false,
+            },
+        )
+        .unwrap();
+
+        let output = NamedTempFile::new().unwrap();
+
+        let result = hash_and_walk(
+            walker,
+            false,
+            false,
+            "blake3",
+            false,
+            false,
+            false,
+            Some(output.path()),
+            1,
+        )
+        .unwrap();
+
+        assert!(!result.is_empty(), "Expected at least one result");
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        assert!(
+            contents.contains("blake3:"),
+            "Expected algo prefix after mid-loop flush"
+        );
+        assert!(
+            contents.lines().count() > 0,
+            "Output file should not be empty after flush"
+        );
+
+        output.close().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_walk_skips_non_files() {
+        use std::os::unix::fs::symlink;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+
+        let real_file = dir.path().join("real.txt");
+        fs::write(&real_file, b"hello").unwrap();
+
+        let dangling = dir.path().join("dangling.txt");
+        symlink(dir.path().join("nonexistent.txt"), &dangling).unwrap();
+
+        let walker = get_walker(
+            &dir.path().to_path_buf(),
+            WalkerOptions {
+                exclude: None,
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: false,
+                hidden: true,
+                no_ignore: false,
+                no_gitignore: false,
+                no_git_exclude: false,
+                no_global_gitignore: false,
+                no_parents: false,
+            },
+        )
+        .unwrap();
+
+        let result = hash_and_walk(
+            walker, false, false, "blake3", false, false, false, None, 100,
+        )
+        .unwrap();
+
+        assert_eq!(result.len(), 1, "Dangling symlink should be skipped");
+        assert!(result[0].filename.contains("real.txt"));
     }
 }
