@@ -4,6 +4,20 @@ on:
       - 'v*'
 
 jobs:
+  build-libhasher:
+    runs-on: ubuntu-rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run tests to validate
+        run: cargo test
+
+      - name: Publish the libhasher release
+        run: |
+          cargo login ${{ secrets.CRATESIO_TOKEN }}
+          cargo publish
+
   build-hasher:
     runs-on: ubuntu-rust
     steps:
