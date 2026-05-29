@@ -5,7 +5,7 @@ readme = "README.md"
 version = "0.9.3"
 edition = "2021"
 license = "MIT"
-repository = "https://git.zevaryx.com/zevaryx/hasher-rs"
+repository = "https://github.com/zevaryx/libhasher"
 
 #[profile.release]
 #strip="symbols"
