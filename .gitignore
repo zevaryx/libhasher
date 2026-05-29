@@ -1,6 +1,6 @@
 # Build directory
-/target
+**/target
 
 # Testing
-*.html
-cobertura.xml
+**/*.html
+**/cobertura.xml
