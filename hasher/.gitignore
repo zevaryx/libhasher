@@ -1,0 +1,6 @@
+# Build directory
+/target
+
+# Testing
+*.html
+cobertura.xml

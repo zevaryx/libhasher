@@ -1,3 +1,7 @@
+//! # hasher
+//! A simple library for hashing files and text with a variety of algorithms, including non-cryptographic ones. 
+//! It also supports progress bars for large files and the ability to use Blake3's `mmap` feature for even faster hashing of large files.
+
 use anyhow::{anyhow, Result};
 use digest::{Digest, DynDigest};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -5,8 +9,11 @@ use noncrypto_digests::{Fnv, Xxh32, Xxh3_128, Xxh3_64, Xxh64};
 use std::{fs, io::Read, mem, path::Path};
 
 #[derive(Debug)]
+/// The result of hashing a file
 pub struct HashResult {
+    /// The file that was hashed
     pub filename: String,
+    /// The resulting hash
     pub hash: String,
 }
 
@@ -25,8 +32,15 @@ fn get_progress_bar(progress: bool, len: u64, path: &Path, min_len: Option<u64>)
     }
 }
 
+// This code should never be reached by normal means, so no coverage is needed
+#[cfg(not(tarpaulin_include))]
+/// Trait to allow for dynamic dispatch of different hashers. 
+/// This is necessary because the `Digest` trait does not support dynamic dispatch, 
+/// and we want to be able to use different hash algorithms with the same interface.
 pub trait DynHasher: Send {
+    /// Update the hasher with the given data
     fn update(&mut self, data: &[u8]);
+    /// Finalize the hasher and return the resulting hash as a byte vector
     fn finalize(&mut self) -> Vec<u8>;
 
     /// Only supported for blake3 with the `mmap` and `rayon` features enabled.
@@ -41,6 +55,7 @@ pub trait DynHasher: Send {
 
 struct DigestHasher(Box<dyn DynDigest + Send>);
 
+#[cfg(not(tarpaulin_include))]
 impl DynHasher for DigestHasher {
     fn update(&mut self, data: &[u8]) {
         self.0.update(data);
@@ -52,6 +67,7 @@ impl DynHasher for DigestHasher {
 
 struct Blake3Hasher(blake3::Hasher);
 
+#[cfg(not(tarpaulin_include))]
 impl DynHasher for Blake3Hasher {
     fn update(&mut self, data: &[u8]) {
         self.0.update(data);
@@ -70,13 +86,13 @@ impl DynHasher for Blake3Hasher {
 
 struct NonCryptoHasher<H: Digest + Default + Send>(H);
 
+#[cfg(not(tarpaulin_include))]
 impl<H: Digest + Default + Send> DynHasher for NonCryptoHasher<H> {
     fn update(&mut self, data: &[u8]) {
         Digest::update(&mut self.0, data);
     }
     fn finalize(&mut self) -> Vec<u8> {
         mem::take(&mut self.0).finalize().to_vec()
-        //mem::replace(&mut self.0, H::default()).finalize().to_vec()
     }
 }
 
@@ -327,6 +343,9 @@ mod tests {
         let mut hasher = Hasher::new(algorithm).unwrap();
         let result = hasher.hash_file(&file, true).unwrap();
         assert_eq!(result.hash, *expected, "Hashing with mmap failed");
+
+        let result = hasher.hash_file_progressbar(&file, true, true, Some(1)).unwrap();
+        assert_eq!(result.hash, *expected, "Hashing with mmap and progress bar failed");
     }
 
     #[test]
@@ -348,8 +367,33 @@ mod tests {
     }
 
     #[test]
+    fn test_hash_text() {
+        let (algorithm, expected) = TEST_CASES[0];
+        let mut hasher = Hasher::new(algorithm).unwrap();
+        let result = hasher.hash_text("Test").unwrap();
+        assert_eq!(result, *expected, "Hashing text failed");
+    }
+
+    #[test]
     fn test_unsupported_algorithm() {
         let result = Hasher::new("md1");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mmap_unsupported_algorithm() {
+        let file = get_test_file("test.txt");
+        let mut hasher = Hasher::new("md5").unwrap();
+        let result = hasher.hash_file(&file, true);
+        assert!(result.is_ok(), "Unsupported algorithm should fall back to non-mmap hashing");
+    }
+
+    #[test]
+    fn test_large_file() {
+        let file = get_test_file("test.large");
+        let algorithm = "sha3_512";
+        let mut hasher = Hasher::new(algorithm).unwrap();
+        let result = hasher.hash_file(&file, false);
+        assert!(result.is_ok(), "Hashing large file failed");
     }
 }

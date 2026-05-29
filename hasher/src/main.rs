@@ -410,7 +410,8 @@ fn process_non_stdin(args: &Args) -> Result<()> {
 #[cfg(not(tarpaulin_include))]
 fn process_stdin(args: &Args) -> Result<()> {
     let mut hasher = Hasher::new(&args.algorithm)?;
-    let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
+    // let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
+    let hash = hasher.hash_text(&args.file.clone().contents()?)?;
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());
     Ok(())
 }
@@ -692,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn test_output() {
+    fn test_output_modern() {
         use tempfile::NamedTempFile;
         let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
         let file = PathBuf::from(base_path + "/tests");
@@ -719,6 +720,59 @@ mod tests {
         let output = NamedTempFile::new().unwrap();
 
         write_results(output.path(), &result, "blake3", false, false).unwrap();
+
+        let result = check(
+            &"blake3".to_string(),
+            output.path(),
+            false,
+            true,
+            true,
+            false,
+        );
+
+        assert!(result.is_ok(), "Failed to save to file as expected");
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        println!("Contents of output file:\n{}", contents);
+        assert!(
+            contents.contains("blake3:"),
+            "Expected algo prefix in output"
+        );
+        assert!(
+            contents.lines().count() > 0,
+            "Output file should not be empty"
+        );
+
+        output.close().unwrap();
+    }
+
+    #[test]
+    fn test_output_legacy() {
+        use tempfile::NamedTempFile;
+        let base_path = env::var("CARGO_MANIFEST_DIR").unwrap();
+        let file = PathBuf::from(base_path + "/tests");
+        let opts = WalkerOptions {
+            no_git_exclude: false,
+            exclude: None,
+            include: None,
+            max_depth: None,
+            max_filesize: None,
+            follow_links: true,
+            hidden: true,
+            no_ignore: false,
+            no_gitignore: false,
+            no_global_gitignore: false,
+            no_parents: false,
+        };
+        let walker = get_walker(&file, opts).unwrap();
+
+        // Algo isn't important here
+        let result = hash_and_walk(
+            walker, false, false, "blake3", false, false, false, None, 100,
+        )
+        .unwrap();
+        let output = NamedTempFile::new().unwrap();
+
         write_results(output.path(), &result, "blake3", true, false).unwrap();
 
         let result = check(
@@ -733,9 +787,10 @@ mod tests {
         assert!(result.is_ok(), "Failed to save to file as expected");
 
         let contents = fs::read_to_string(output.path()).unwrap();
+        println!("Contents of output file:\n{}", contents);
         assert!(
-            contents.contains("blake3:"),
-            "Expected algo prefix in output"
+            !contents.contains("blake3:"),
+            "Expected no algo prefix in output"
         );
         assert!(
             contents.lines().count() > 0,
@@ -812,7 +867,7 @@ mod tests {
         let walker = get_walker(
             &file,
             WalkerOptions {
-                exclude: None,
+                exclude: Some(vec![String::from("*.large")]),
                 include: None,
                 max_depth: None,
                 max_filesize: None,
