@@ -10,7 +10,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libhasher = "0.9.1"
+libhasher = "0.9"
 anyhow = "1.0.102"
 blake2 = "0.10.6"
 blake3 = { version = "1.8.5", features = ["rayon", "mmap", "traits-preview"] }
