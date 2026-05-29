@@ -10,4 +10,4 @@ See [docs.rs](https://docs.rs/libhasher)
 
 ## hasher bin
 
-See [`hasher`](hasher/)
+See [`hasher`](https://git.zevaryx.com/zevaryx/hasher-rs/src/branch/dev/hasher)
