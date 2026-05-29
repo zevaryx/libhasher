@@ -410,8 +410,7 @@ fn process_non_stdin(args: &Args) -> Result<()> {
 #[cfg(not(tarpaulin_include))]
 fn process_stdin(args: &Args) -> Result<()> {
     let mut hasher = Hasher::new(&args.algorithm)?;
-    // let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
-    let hash = hasher.hash_text(&args.file.clone().contents()?)?;
+    let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
     println!("{}  {}", hash.bright_green(), "-".bright_cyan());
     Ok(())
 }
