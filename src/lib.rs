@@ -1,4 +1,4 @@
-//! # hasher
+//! # libhasher
 //! A simple library for hashing files and text with a variety of algorithms, including non-cryptographic ones. 
 //! It also supports progress bars for large files and the ability to use Blake3's `mmap` feature for even faster hashing of large files.
 
