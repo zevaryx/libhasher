@@ -478,6 +478,7 @@ dependencies = [
  "hex",
  "ignore",
  "indicatif",
+ "libhasher",
  "md-5",
  "noncrypto-digests",
  "sha1",
@@ -598,6 +599,25 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
+
+[[package]]
+name = "libhasher"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0b4cede76f5c2b3a2598282bd5fb533af7f8426e9c4525118e0171478d25ac7"
+dependencies = [
+ "anyhow",
+ "blake2",
+ "blake3",
+ "digest 0.10.7",
+ "hex",
+ "indicatif",
+ "md-5",
+ "noncrypto-digests",
+ "sha1",
+ "sha2",
+ "sha3",
+]
 
 [[package]]
 name = "linux-raw-sys"

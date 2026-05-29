@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use clap_stdin::FileOrStdin;
 use colored::Colorize;
-use hasher::{HashResult, Hasher};
+use libhasher::{HashResult, Hasher};
 use ignore::{overrides::OverrideBuilder, Walk, WalkBuilder};
 #[cfg(not(tarpaulin_include))]
 use std::process::ExitCode;

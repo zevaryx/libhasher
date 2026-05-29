@@ -110,7 +110,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// ```
@@ -141,7 +141,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// hasher.update("Hello, World".as_bytes());
@@ -156,7 +156,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     /// use hex;
     ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
@@ -173,7 +173,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     ///
     /// let mut hasher = Hasher::new("blake3").unwrap();
     /// // This can also be an `&String`
@@ -228,7 +228,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     /// use std::path::PathBuf;
     ///
     /// // We'll use SHA256 this time
@@ -270,7 +270,7 @@ impl Hasher {
     /// # Examples
     ///
     /// ```
-    /// use hasher::Hasher;
+    /// use libhasher::Hasher;
     /// use std::path::PathBuf;
     ///
     /// // We'll use SHA256 this time

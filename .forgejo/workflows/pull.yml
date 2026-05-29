@@ -9,7 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run linting
+      - name: Run linting on libhasher
         run: |
           cargo fmt --message-format human -- --check
           cargo check
