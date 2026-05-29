@@ -2,7 +2,7 @@
 name = "libhasher"
 description = "A high-level hashing library for files and text"
 readme = "README.md"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2021"
 license = "MIT"
 repository = "https://git.zevaryx.com/zevaryx/hasher-rs"
