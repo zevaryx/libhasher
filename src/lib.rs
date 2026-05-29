@@ -1,5 +1,5 @@
 //! # libhasher
-//! A simple library for hashing files and text with a variety of algorithms, including non-cryptographic ones. 
+//! A simple library for hashing files and text with a variety of algorithms, including non-cryptographic ones.
 //! It also supports progress bars for large files and the ability to use Blake3's `mmap` feature for even faster hashing of large files.
 
 use anyhow::{anyhow, Result};
@@ -34,8 +34,8 @@ fn get_progress_bar(progress: bool, len: u64, path: &Path, min_len: Option<u64>)
 
 // This code should never be reached by normal means, so no coverage is needed
 #[cfg(not(tarpaulin_include))]
-/// Trait to allow for dynamic dispatch of different hashers. 
-/// This is necessary because the `Digest` trait does not support dynamic dispatch, 
+/// Trait to allow for dynamic dispatch of different hashers.
+/// This is necessary because the `Digest` trait does not support dynamic dispatch,
 /// and we want to be able to use different hash algorithms with the same interface.
 pub trait DynHasher: Send {
     /// Update the hasher with the given data
@@ -344,8 +344,13 @@ mod tests {
         let result = hasher.hash_file(&file, true).unwrap();
         assert_eq!(result.hash, *expected, "Hashing with mmap failed");
 
-        let result = hasher.hash_file_progressbar(&file, true, true, Some(1)).unwrap();
-        assert_eq!(result.hash, *expected, "Hashing with mmap and progress bar failed");
+        let result = hasher
+            .hash_file_progressbar(&file, true, true, Some(1))
+            .unwrap();
+        assert_eq!(
+            result.hash, *expected,
+            "Hashing with mmap and progress bar failed"
+        );
     }
 
     #[test]
@@ -385,7 +390,10 @@ mod tests {
         let file = get_test_file("test.txt");
         let mut hasher = Hasher::new("md5").unwrap();
         let result = hasher.hash_file(&file, true);
-        assert!(result.is_ok(), "Unsupported algorithm should fall back to non-mmap hashing");
+        assert!(
+            result.is_ok(),
+            "Unsupported algorithm should fall back to non-mmap hashing"
+        );
     }
 
     #[test]
