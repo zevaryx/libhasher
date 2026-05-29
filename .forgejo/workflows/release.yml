@@ -4,17 +4,18 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  build-hasher:
     runs-on: ubuntu-rust
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run tests to validate
-        run: cargo test
+        run: cd hasher && cargo test
 
-      - name: Build the release
+      - name: Build the hasher release
         run: |
+          cd hasher
           cargo build --release \
             --target x86_64-unknown-linux-musl \
             --target x86_64-pc-windows-gnu \
@@ -24,6 +25,7 @@ jobs:
       
       - name: Generate the release folder
         run: |
+          cd hasher
           mkdir -p release
           cp ./target/x86_64-unknown-linux-musl/release/hasher release/hasher-linux-x86_64
           cp ./target/aarch64-unknown-linux-musl/release/hasher release/hasher-linux-aarch64
@@ -42,5 +44,5 @@ jobs:
           direction: upload
           tag: "${{ github.ref_name }}"
           sha: "${{ github.sha }}"
-          release-dir: release
+          release-dir: hasher/release
           token: ${{ github.TOKEN }}

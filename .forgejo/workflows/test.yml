@@ -12,5 +12,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run tests
+      - name: Run tests on libhasher
         run: cargo test
+
+      - name: Run tests on hasher
+        run: cd hasher && cargo test

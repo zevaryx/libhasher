@@ -14,3 +14,10 @@ jobs:
           cargo fmt --message-format human -- --check
           cargo check
           cargo clippy -q --no-deps -- -D warnings
+
+      - name: Run linting on hasher
+        run: |
+          cd hasher
+          cargo fmt --message-format human -- --check
+          cargo check
+          cargo clippy -q --no-deps -- -D warnings
