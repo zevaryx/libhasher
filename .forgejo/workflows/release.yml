@@ -15,7 +15,7 @@ jobs:
 
       - name: Publish the libhasher release
         run: |
-          cargo login ${{ secrets.CRATESIO_TOKEN }}
+          cargo login ${{ secrets.CRATES_IO_TOKEN }}
           cargo publish -p libhasher
 
   build-hasher:
