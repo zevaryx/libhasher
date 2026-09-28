@@ -14,7 +14,13 @@ use std::{
 };
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "A simple hasher that supports multiple algorithms and directory traversal", long_about = None)]
+#[command(
+    author, 
+    version, 
+    about = "A simple hasher that supports multiple algorithms and directory traversal", 
+    long_about = None,
+    help_template = "{bin} v{version}\n{about-section}\n{usage-heading} {usage}\n\n{all-args}"
+)]
 struct Args {
     #[arg(short, long, default_value_t = String::from("blake3"), help = "Must be one of: blake2, blake3, md5, sha1, sha256, sha512, sha3_256, sha3_512, xxh3_128, xxh3_64, xxh64, xxh32, fnv")]
     algorithm: String,
