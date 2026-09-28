@@ -27,7 +27,7 @@ use std::path::PathBuf;
 
 fn main() {
     let mut hasher = Hasher::new("blake3").unwrap();
-    let progress = true
+    let progress = true;
     let mmap = false; // This only matters for blake3, no other algorithm supports mmap
     let result = hasher.hash_file_progressbar(&PathBuf::from("very_large.file"), progress, mmap, None).unwrap();
     println!("{}", result.hash);

@@ -1,6 +1,5 @@
 [env]
 SDKROOT = "/opt/osxcross/SDK/MacOSX15.sdk"
-CARGO_FEATURE_NO_NEON = "1"
 CC_aarch64-apple-darwin = "/opt/osxcross/bin/aarch64-apple-darwin24-clang"
 AR_aarch64-apple-darwin = "/opt/osxcross/bin/aarch64-apple-darwin24-ar"
 CC_x86_64-apple-darwin = "/opt/osxcross/bin/x86_64-apple-darwin24-clang"

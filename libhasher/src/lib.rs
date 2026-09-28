@@ -3,10 +3,15 @@
 //! It also supports progress bars for large files and the ability to use Blake3's `mmap` feature for even faster hashing of large files.
 
 use anyhow::{anyhow, Result};
-use digest::{Digest, DynDigest};
+use digest::Digest;
 use indicatif::{ProgressBar, ProgressStyle};
 use noncrypto_digests::{Fnv, Xxh32, Xxh3_128, Xxh3_64, Xxh64};
-use std::{fs, io::Read, mem, path::Path};
+use std::{
+    fs,
+    io::{self, Read},
+    mem,
+    path::Path,
+};
 
 #[derive(Debug)]
 /// The result of hashing a file
@@ -17,12 +22,13 @@ pub struct HashResult {
     pub hash: String,
 }
 
-fn get_progress_bar(progress: bool, len: u64, path: &Path, min_len: Option<u64>) -> ProgressBar {
+fn get_progress_bar(len: u64, path: &Path, min_len: Option<u64>) -> ProgressBar {
     // Set a minimum size of 256MB
     let min_len = min_len.unwrap_or(256 * 1024 * 1024_u64);
-    if progress && len >= min_len {
+    if len >= min_len {
         let pb = ProgressBar::new(len);
-        pb.set_message(path.display().to_string());
+        // Keep control characters in filenames from reaching the terminal
+        pb.set_message(path.display().to_string().replace(char::is_control, "?"));
         pb.set_style(ProgressStyle::with_template("{spinner:.blue} {msg} [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
                 .unwrap()
                 .progress_chars("█▉▊▋▌▍▎▏ "));
@@ -53,18 +59,6 @@ pub trait DynHasher: Send {
     }
 }
 
-struct DigestHasher(Box<dyn DynDigest + Send>);
-
-#[cfg(not(tarpaulin_include))]
-impl DynHasher for DigestHasher {
-    fn update(&mut self, data: &[u8]) {
-        self.0.update(data);
-    }
-    fn finalize(&mut self) -> Vec<u8> {
-        self.0.finalize_reset().into()
-    }
-}
-
 struct Blake3Hasher(blake3::Hasher);
 
 #[cfg(not(tarpaulin_include))]
@@ -79,15 +73,20 @@ impl DynHasher for Blake3Hasher {
     }
 
     fn update_mmap_rayon(&mut self, path: &std::path::Path) -> Result<(), anyhow::Error> {
-        self.0.update_mmap_rayon(path)?;
+        if let Err(e) = self.0.update_mmap_rayon(path) {
+            // A read error part-way through leaves partial input behind, so
+            // clear it before the caller falls back to regular hashing
+            self.0.reset();
+            return Err(e.into());
+        }
         Ok(())
     }
 }
 
-struct NonCryptoHasher<H: Digest + Default + Send>(H);
+struct DigestHasher<H: Digest + Default + Send>(H);
 
 #[cfg(not(tarpaulin_include))]
-impl<H: Digest + Default + Send> DynHasher for NonCryptoHasher<H> {
+impl<H: Digest + Default + Send> DynHasher for DigestHasher<H> {
     fn update(&mut self, data: &[u8]) {
         Digest::update(&mut self.0, data);
     }
@@ -100,6 +99,10 @@ impl<H: Digest + Default + Send> DynHasher for NonCryptoHasher<H> {
 pub struct Hasher {
     /// The hasher object, only used internaly
     hasher: Box<dyn DynHasher>,
+    /// Whether the hasher implements `update_mmap_rayon` (only blake3 does)
+    supports_mmap: bool,
+    /// Read buffer, reused between files
+    buf: Vec<u8>,
 }
 
 impl Hasher {
@@ -116,23 +119,27 @@ impl Hasher {
     /// ```
     pub fn new(algo: &str) -> Result<Self> {
         let hasher: Box<dyn DynHasher> = match algo {
-            "md5" => Box::new(DigestHasher(Box::new(md5::Md5::new()))),
-            "sha1" => Box::new(DigestHasher(Box::new(sha1::Sha1::new()))),
-            "sha256" => Box::new(DigestHasher(Box::new(sha2::Sha256::new()))),
-            "sha512" => Box::new(DigestHasher(Box::new(sha2::Sha512::new()))),
-            "sha3_256" => Box::new(DigestHasher(Box::new(sha3::Sha3_256::new()))),
-            "sha3_512" => Box::new(DigestHasher(Box::new(sha3::Sha3_512::new()))),
-            "blake2" => Box::new(DigestHasher(Box::new(blake2::Blake2b512::new()))),
+            "md5" => Box::new(DigestHasher(md5::Md5::new())),
+            "sha1" => Box::new(DigestHasher(sha1::Sha1::new())),
+            "sha256" => Box::new(DigestHasher(sha2::Sha256::new())),
+            "sha512" => Box::new(DigestHasher(sha2::Sha512::new())),
+            "sha3_256" => Box::new(DigestHasher(sha3::Sha3_256::new())),
+            "sha3_512" => Box::new(DigestHasher(sha3::Sha3_512::new())),
+            "blake2" => Box::new(DigestHasher(blake2::Blake2b512::new())),
             "blake3" => Box::new(Blake3Hasher(blake3::Hasher::new())),
-            "fnv" => Box::new(NonCryptoHasher(Fnv::default())),
-            "xxh32" => Box::new(NonCryptoHasher(Xxh32::default())),
-            "xxh64" => Box::new(NonCryptoHasher(Xxh64::default())),
-            "xxh3_64" => Box::new(NonCryptoHasher(Xxh3_64::default())),
-            "xxh3_128" => Box::new(NonCryptoHasher(Xxh3_128::default())),
+            "fnv" => Box::new(DigestHasher(Fnv::default())),
+            "xxh32" => Box::new(DigestHasher(Xxh32::default())),
+            "xxh64" => Box::new(DigestHasher(Xxh64::default())),
+            "xxh3_64" => Box::new(DigestHasher(Xxh3_64::default())),
+            "xxh3_128" => Box::new(DigestHasher(Xxh3_128::default())),
             _ => return Err(anyhow!("Unsupported hash algorithm: {}", algo)),
         };
 
-        Ok(Hasher { hasher })
+        Ok(Hasher {
+            hasher,
+            supports_mmap: algo == "blake3",
+            buf: Vec::new(),
+        })
     }
 
     /// A low-level way to directly update the internal hasher.
@@ -186,6 +193,25 @@ impl Hasher {
         Ok(hex::encode(self.finalize()))
     }
 
+    /// High-level way to hash everything from a reader, such as stdin
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use libhasher::Hasher;
+    ///
+    /// let mut hasher = Hasher::new("blake3").unwrap();
+    /// // Any `Read` works here, e.g. `std::io::stdin()`
+    /// let result = hasher.hash_stream(&mut "Hello, World".as_bytes()).unwrap();
+    ///
+    /// println!("{}", result);
+    /// ```
+    pub fn hash_stream(&mut self, reader: &mut impl Read) -> Result<String> {
+        Ok(hex::encode(
+            self.hash_reader(reader, &ProgressBar::hidden())?,
+        ))
+    }
+
     /// An internal way to hash a file with Blake3's mmap and rayon features
     ///
     /// Not publicly exposed, but accessible if `mmap` is set to `true` on
@@ -201,14 +227,23 @@ impl Hasher {
 
     /// Internal hasher. Separating the hashing from the functions provides better maintainability
     fn hash_reader(&mut self, reader: &mut impl Read, pb: &ProgressBar) -> Result<Vec<u8>> {
-        let mut buf = [0u8; 65536];
+        // Allocated on first use, as mmap and text hashing never need it
+        if self.buf.is_empty() {
+            self.buf = vec![0u8; 65536];
+        }
         loop {
-            let n = reader.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
+            let n = match reader.read(&mut self.buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    // Discard the partial input so the hasher can be reused
+                    self.finalize();
+                    return Err(e.into());
+                }
+            };
             pb.inc(n as u64);
-            self.update(&buf[..n])
+            self.hasher.update(&self.buf[..n])
         }
         pb.finish_and_clear();
         Ok(self.finalize())
@@ -244,14 +279,18 @@ impl Hasher {
         mmap: bool,
         min_len: Option<u64>,
     ) -> Result<HashResult> {
-        if mmap {
+        if mmap && self.supports_mmap {
             if let Ok(result) = self.hash_file_mmap(path) {
                 return Ok(result);
             }
         }
 
         let mut file = fs::File::open(path)?;
-        let pb = get_progress_bar(progress, file.metadata()?.len(), path, min_len);
+        let pb = if progress {
+            get_progress_bar(file.metadata()?.len(), path, min_len)
+        } else {
+            ProgressBar::hidden()
+        };
         let hash = self.hash_reader(&mut file, &pb)?;
 
         Ok(HashResult {
@@ -280,19 +319,7 @@ impl Hasher {
     /// println!("{}", result.hash);
     /// ```
     pub fn hash_file(&mut self, path: &Path, mmap: bool) -> Result<HashResult> {
-        if mmap {
-            if let Ok(result) = self.hash_file_mmap(path) {
-                return Ok(result);
-            }
-        }
-
-        let mut file = fs::File::open(path)?;
-        let hash = self.hash_reader(&mut file, &ProgressBar::hidden())?;
-
-        Ok(HashResult {
-            filename: path.display().to_string(),
-            hash: hex::encode(hash),
-        })
+        self.hash_file_progressbar(path, false, mmap, None)
     }
 }
 
@@ -394,6 +421,33 @@ mod tests {
             result.is_ok(),
             "Unsupported algorithm should fall back to non-mmap hashing"
         );
+    }
+
+    #[test]
+    fn test_hasher_reusable_after_read_error() {
+        // Returns some data and then fails, like a disk error part-way through a file
+        struct FailingReader(bool);
+        impl Read for FailingReader {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if mem::replace(&mut self.0, true) {
+                    Err(io::Error::other("read failed"))
+                } else {
+                    buf[..4].copy_from_slice(b"junk");
+                    Ok(4)
+                }
+            }
+        }
+
+        for (algorithm, expected) in TEST_CASES {
+            let mut hasher = Hasher::new(algorithm).unwrap();
+            let result = hasher.hash_reader(&mut FailingReader(false), &ProgressBar::hidden());
+            assert!(result.is_err(), "Read error should be returned");
+            let result = hasher.hash_text("Test").unwrap();
+            assert_eq!(
+                result, *expected,
+                "Partial input leaked into the next hash for algorithm: {algorithm}"
+            );
+        }
     }
 
     #[test]

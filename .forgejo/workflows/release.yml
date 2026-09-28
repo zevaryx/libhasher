@@ -14,9 +14,9 @@ jobs:
         run: cargo test -p libhasher
 
       - name: Publish the libhasher release
-        run: |
-          cargo login ${{ secrets.CRATES_IO_TOKEN }}
-          cargo publish -p libhasher
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p libhasher
 
   build-hasher:
     runs-on: ubuntu-rust

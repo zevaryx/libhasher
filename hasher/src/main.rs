@@ -7,6 +7,7 @@ use libhasher::{HashResult, Hasher};
 #[cfg(not(tarpaulin_include))]
 use std::process::ExitCode;
 use std::{
+    borrow::Cow,
     fs::{self, OpenOptions},
     io::{self, BufRead, BufWriter, Write},
     path::{Path, PathBuf},
@@ -130,13 +131,55 @@ pub fn get_walker(path: &PathBuf, opts: WalkerOptions) -> Result<Walk> {
         }
     }
     if let Some(include) = opts.include {
-        for mut i in include {
-            i = String::from(i.strip_prefix("!").unwrap_or(&i));
-            over.add(&i)?;
+        for i in include {
+            over.add(i.strip_prefix('!').unwrap_or(&i))?;
         }
     }
     walker.overrides(over.build()?);
     Ok(walker.build())
+}
+
+/// Escape a filename containing control characters (e.g. newlines) so it can't
+/// break the hashsum format or reach the terminal. Like GNU coreutils, returns a
+/// `\` to start the line with, and escapes `\`, `\n` and `\r`
+fn escape_filename(name: &str) -> (&'static str, Cow<'_, str>) {
+    if !name.contains(|c: char| c.is_control() && c != '\t') {
+        return ("", Cow::Borrowed(name));
+    }
+    let mut escaped = String::with_capacity(name.len() + 8);
+    for c in name.chars() {
+        match c {
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            c if c.is_control() && c != '\t' => escaped.push_str(&format!("\\x{:02x}", c as u32)),
+            c => escaped.push(c),
+        }
+    }
+    ("\\", Cow::Owned(escaped))
+}
+
+/// Undo `escape_filename`, returning `None` for an invalid escape
+fn unescape_filename(name: &str) -> Option<String> {
+    let mut unescaped = String::with_capacity(name.len());
+    let mut chars = name.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            unescaped.push(c);
+            continue;
+        }
+        match chars.next()? {
+            '\\' => unescaped.push('\\'),
+            'n' => unescaped.push('\n'),
+            'r' => unescaped.push('\r'),
+            'x' => {
+                let hex: String = chars.by_ref().take(2).collect();
+                unescaped.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(unescaped)
 }
 
 #[derive(Debug, PartialEq)]
@@ -156,49 +199,70 @@ fn check(
     quiet: bool,
     status: bool,
 ) -> Result<CheckResult> {
-    let file = fs::File::open(path)?;
-    let lines = io::BufReader::new(file).lines();
+    // "-" reads the hashsums from stdin
+    let reader: Box<dyn BufRead> = if path == Path::new("-") {
+        Box::new(io::stdin().lock())
+    } else {
+        Box::new(io::BufReader::new(fs::File::open(path)?))
+    };
+    let lines = reader.lines();
     let mut total = 0;
     let mut mismatch: u64 = 0;
     let mut hash_fail: u64 = 0;
     let mut invalid: u64 = 0;
     let mut unsupported: u64 = 0;
-    let mut result: Result<HashResult>;
 
     let mut main_hasher = Hasher::new(main_algo)?;
 
     let progress = progress && (!quiet && !status);
 
-    for line in lines.map_while(Result::ok) {
-        let mut parts = line.splitn(2, "  ");
-        if let (Some(hash), Some(filename)) = (parts.next(), parts.next()) {
-            total += 1;
-            let mut proper_hash = hash.to_owned();
-            let mut hash_parts = hash.splitn(2, ":");
-            if let (Some(algo), Some(hash)) = (hash_parts.next(), hash_parts.next()) {
-                proper_hash = hash.to_owned();
-                let hasher = Hasher::new(algo);
-                if let Ok(mut h) = hasher {
-                    result = h.hash_file_progressbar(Path::new(filename), progress, mmap, None);
-                } else {
-                    if !status {
-                        println!(
-                            "{}: {}:{}",
-                            filename.bright_cyan(),
-                            "UNSUPPORTED".bright_red(),
-                            algo.white()
-                        );
-                    }
-                    unsupported += 1;
-                    continue;
-                }
+    for line in lines {
+        let line = match line {
+            Ok(line) => line,
+            // Skip lines that aren't valid UTF-8 like any other malformed line,
+            // instead of silently ending the check early
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => continue,
+            Err(e) => return Err(e.into()),
+        };
+        // A leading backslash means the filename is escaped
+        let (escaped, line) = match line.strip_prefix('\\') {
+            Some(line) => (true, line),
+            None => (false, line.as_str()),
+        };
+        if let Some((hash, filename)) = line.split_once("  ") {
+            let filename = if !escaped {
+                Cow::Borrowed(filename)
+            } else if let Some(filename) = unescape_filename(filename) {
+                Cow::Owned(filename)
             } else {
-                result =
-                    main_hasher.hash_file_progressbar(Path::new(filename), progress, mmap, None);
-            }
+                continue;
+            };
+            let path = Path::new(&*filename);
+            // Show the filename escaped, the same way it's written
+            let (prefix, shown) = escape_filename(&filename);
+            let filename = format!("{prefix}{shown}");
+            total += 1;
+            // Lines without an algorithm prefix use the main algorithm
+            let (algo, proper_hash) = hash.split_once(':').unwrap_or((main_algo, hash));
+            let result = if algo == main_algo {
+                main_hasher.hash_file_progressbar(path, progress, mmap, None)
+            } else if let Ok(mut h) = Hasher::new(algo) {
+                h.hash_file_progressbar(path, progress, mmap, None)
+            } else {
+                if !status {
+                    println!(
+                        "{}: {}:{}",
+                        filename.bright_cyan(),
+                        "UNSUPPORTED".bright_red(),
+                        algo.white()
+                    );
+                }
+                unsupported += 1;
+                continue;
+            };
             match result {
                 Ok(result) => {
-                    if result.hash.eq(&proper_hash) {
+                    if result.hash.eq_ignore_ascii_case(proper_hash) {
                         if !quiet && !status {
                             println!("{}: {}", filename.bright_cyan(), "OK".bright_green());
                         }
@@ -215,7 +279,9 @@ fn check(
                     }
                 }
                 Err(_) => {
-                    println!("{}", "HASH_FAIL".bright_red());
+                    if !status {
+                        println!("{}: {}", filename.bright_cyan(), "HASH_FAIL".bright_red());
+                    }
                     hash_fail += 1;
                 }
             }
@@ -247,10 +313,11 @@ fn hash_and_walk(
 ) -> Result<Vec<HashResult>> {
     let mut hasher = Hasher::new(algo)?;
     let mut hash_results: Vec<HashResult> = Vec::new();
-    for entry in walker.map_while(Result::ok) {
-        if entry.path().is_dir() {
-            continue;
-        }
+    // The first write replaces any existing output file, later ones add to it
+    let mut append = false;
+    // Skip entries that can't be read (e.g. permission denied, dangling
+    // symlinks) instead of silently ending the walk at the first one
+    for entry in walker.filter_map(Result::ok) {
         if !entry.path().is_file() {
             continue;
         }
@@ -260,31 +327,45 @@ fn hash_and_walk(
             mmap,
             None,
         )?;
-        let hash = &result.hash;
-        if legacy {
-            println!("{}  {}", hash.bright_green(), result.filename.bright_cyan());
-        } else {
-            println!(
-                "{}:{}  {}",
-                algo.bright_yellow(),
-                hash.bright_green(),
-                result.filename.bright_blue()
-            );
+        if !status && !quiet {
+            print_result(&result, algo, legacy);
         }
         hash_results.push(result);
         if hash_results.len() > queue_size {
             if let Some(p) = &path {
-                write_results(p, &hash_results, algo, legacy, true)?;
+                write_results(p, &hash_results, algo, legacy, append)?;
+                append = true;
             }
             hash_results.clear();
         }
     }
 
     if let Some(p) = &path {
-        write_results(p, &hash_results, algo, legacy, true)?;
+        write_results(p, &hash_results, algo, legacy, append)?;
     }
 
     Ok(hash_results)
+}
+
+fn print_result(result: &HashResult, algo: &str, legacy: bool) {
+    let (prefix, filename) = escape_filename(&result.filename);
+    let hash = &result.hash;
+    if legacy {
+        println!(
+            "{}{}  {}",
+            prefix,
+            hash.bright_green(),
+            filename.bright_cyan()
+        );
+    } else {
+        println!(
+            "{}{}:{}  {}",
+            prefix,
+            algo.bright_yellow(),
+            hash.bright_green(),
+            filename.bright_blue()
+        );
+    }
 }
 
 fn write_results(
@@ -297,42 +378,29 @@ fn write_results(
     let file = OpenOptions::new()
         .write(true)
         .append(append)
+        .truncate(!append)
         .create(true)
         .open(path)?;
     let mut file = BufWriter::new(file);
 
     for res in results {
+        let (prefix, filename) = escape_filename(&res.filename);
         let hash = &res.hash;
         if legacy {
-            writeln!(file, "{}  {}", hash, res.filename)?;
+            writeln!(file, "{}{}  {}", prefix, hash, filename)?;
         } else {
-            writeln!(file, "{}:{}  {}", algo, hash, res.filename)?;
+            writeln!(file, "{}{}:{}  {}", prefix, algo, hash, filename)?;
         }
     }
 
+    // BufWriter ignores errors when flushing on drop (e.g. a full disk)
+    file.flush()?;
     Ok(())
 }
 
 #[cfg(not(tarpaulin_include))]
 fn process_non_stdin(args: &Args) -> Result<()> {
     let file = PathBuf::from(args.file.filename());
-    let walker = get_walker(
-        &file,
-        WalkerOptions {
-            exclude: args.exclude.clone(),
-            include: args.include.clone(),
-            max_depth: args.max_depth,
-            max_filesize: args.max_filesize,
-            follow_links: args.follow_links,
-            hidden: args.hidden,
-            no_ignore: args.no_ignore,
-            no_gitignore: args.no_gitignore,
-            no_git_exclude: args.no_git_exclude,
-            no_global_gitignore: args.no_global_gitignore,
-            no_parents: args.no_parents,
-        },
-    )?;
-
     if args.check {
         let check_result = check(
             &args.algorithm,
@@ -374,6 +442,26 @@ fn process_non_stdin(args: &Args) -> Result<()> {
                     }
                     error = true;
                 }
+                if result.hash_fail > 0 {
+                    if !args.status {
+                        println!(
+                            "{}: {} listed file(s) could not be read",
+                            "WARNING".bright_red(),
+                            result.hash_fail
+                        );
+                    }
+                    error = true;
+                }
+                if result.unsupported > 0 {
+                    if !args.status {
+                        println!(
+                            "{}: {} checksum(s) use an unsupported algorithm",
+                            "WARNING".bright_red(),
+                            result.unsupported
+                        );
+                    }
+                    error = true;
+                }
                 if (result.hash_fail + result.invalid) as f64 > (result.total as f64 * 0.8) {
                     if !args.status {
                         println!(
@@ -392,14 +480,32 @@ fn process_non_stdin(args: &Args) -> Result<()> {
             Err(e) => Err(anyhow!("Failed to validate file: {}", e)),
         }
     } else {
+        // The walker yields nothing for a path that can't be read, so check it first
+        fs::metadata(&file).map_err(|e| anyhow!("{}: {}", file.display(), e))?;
+        let walker = get_walker(
+            &file,
+            WalkerOptions {
+                exclude: args.exclude.clone(),
+                include: args.include.clone(),
+                max_depth: args.max_depth,
+                max_filesize: args.max_filesize,
+                follow_links: args.follow_links,
+                hidden: args.hidden,
+                no_ignore: args.no_ignore,
+                no_gitignore: args.no_gitignore,
+                no_git_exclude: args.no_git_exclude,
+                no_global_gitignore: args.no_global_gitignore,
+                no_parents: args.no_parents,
+            },
+        )?;
         let _ = hash_and_walk(
             walker,
             !args.no_progress,
             !args.no_mmap,
             args.algorithm.as_str(),
             args.legacy,
-            args.quiet,
             args.status,
+            args.quiet,
             args.output.as_deref(),
             args.buffer_size,
         )?;
@@ -410,8 +516,16 @@ fn process_non_stdin(args: &Args) -> Result<()> {
 #[cfg(not(tarpaulin_include))]
 fn process_stdin(args: &Args) -> Result<()> {
     let mut hasher = Hasher::new(&args.algorithm)?;
-    let hash = hasher.hash_text(&args.file.clone().contents_untrimmed()?)?;
-    println!("{}  {}", hash.bright_green(), "-".bright_cyan());
+    let result = HashResult {
+        filename: String::from("-"),
+        hash: hasher.hash_stream(&mut args.file.clone().into_reader()?)?,
+    };
+    if !args.status && !args.quiet {
+        print_result(&result, &args.algorithm, args.legacy);
+    }
+    if let Some(p) = &args.output {
+        write_results(p, &[result], &args.algorithm, args.legacy, false)?;
+    }
     Ok(())
 }
 
@@ -419,15 +533,16 @@ fn process_stdin(args: &Args) -> Result<()> {
 pub fn main() -> ExitCode {
     let args = Args::parse();
     // We need to validate status and/or quiet
-    if (args.status || args.quiet) && (!args.check || args.output.is_some()) {
+    if (args.status || args.quiet) && !args.check && args.output.is_none() {
         eprintln!(
-            "{}: quiet and status modes require check mode or output, ignoring",
+            "{}: quiet and status modes require check mode or output",
             "ERROR".bright_red()
         );
         return ExitCode::FAILURE;
     }
     let is_stdin = args.file.is_stdin();
-    let res: Result<()> = if is_stdin {
+    // Check mode reads the hashsums from stdin itself
+    let res: Result<()> = if is_stdin && !args.check {
         process_stdin(&args)
     } else {
         process_non_stdin(&args)
@@ -950,5 +1065,162 @@ mod tests {
 
         assert_eq!(result.len(), 1, "Dangling symlink should be skipped");
         assert!(result[0].filename.contains("real.txt"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_walk_continues_past_errors() {
+        use std::os::unix::fs::symlink;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        for i in 0..10 {
+            fs::write(dir.path().join(format!("file{i}.txt")), b"hello").unwrap();
+        }
+
+        // Following a dangling symlink makes the walker yield an error
+        let dangling = dir.path().join("dangling.txt");
+        symlink(dir.path().join("nonexistent.txt"), &dangling).unwrap();
+
+        let walker = get_walker(
+            &dir.path().to_path_buf(),
+            WalkerOptions {
+                exclude: None,
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: true,
+                hidden: true,
+                no_ignore: false,
+                no_gitignore: false,
+                no_git_exclude: false,
+                no_global_gitignore: false,
+                no_parents: false,
+            },
+        )
+        .unwrap();
+
+        let result = hash_and_walk(
+            walker, false, false, "blake3", false, false, false, None, 100,
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.len(),
+            10,
+            "Walk should continue past entries it can't read"
+        );
+    }
+
+    #[test]
+    fn test_check_skips_non_utf8_lines() {
+        use tempfile::NamedTempFile;
+        let (algorithm, expected) = TEST_CASES[0];
+        let file = get_test_file("test.txt");
+
+        let mut sums = NamedTempFile::new().unwrap();
+        writeln!(sums, "{}  {}", expected, file.display()).unwrap();
+        sums.write_all(b"not utf-8 \xff  file\n").unwrap();
+        writeln!(sums, "{}  {}", "0".repeat(expected.len()), file.display()).unwrap();
+        sums.flush().unwrap();
+
+        let result = check(algorithm, sums.path(), false, false, true, false).unwrap();
+
+        let control = CheckResult {
+            total: 2,
+            mismatch: 1,
+            hash_fail: 0,
+            invalid: 0,
+            unsupported: 0,
+        };
+
+        assert_eq!(
+            result, control,
+            "Lines after a non-UTF-8 line should still be checked"
+        );
+    }
+
+    #[test]
+    fn test_write_results_truncates() {
+        use tempfile::NamedTempFile;
+        let output = NamedTempFile::new().unwrap();
+        fs::write(
+            output.path(),
+            "stale contents longer than the new ones\n".repeat(10),
+        )
+        .unwrap();
+
+        let results = [HashResult {
+            filename: String::from("file.txt"),
+            hash: String::from("abcd"),
+        }];
+        write_results(output.path(), &results, "blake3", false, false).unwrap();
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        assert_eq!(
+            contents, "blake3:abcd  file.txt\n",
+            "Writing without append should replace old contents"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_escaped_filename_round_trip() {
+        use tempfile::{NamedTempFile, TempDir};
+
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("new\nline\\\x1b.txt"), b"hello").unwrap();
+        let walker = get_walker(
+            &dir.path().to_path_buf(),
+            WalkerOptions {
+                exclude: None,
+                include: None,
+                max_depth: None,
+                max_filesize: None,
+                follow_links: false,
+                hidden: true,
+                no_ignore: false,
+                no_gitignore: false,
+                no_git_exclude: false,
+                no_global_gitignore: false,
+                no_parents: false,
+            },
+        )
+        .unwrap();
+
+        let output = NamedTempFile::new().unwrap();
+        hash_and_walk(
+            walker,
+            false,
+            false,
+            "blake3",
+            false,
+            false,
+            false,
+            Some(output.path()),
+            100,
+        )
+        .unwrap();
+
+        let contents = fs::read_to_string(output.path()).unwrap();
+        assert_eq!(
+            contents.lines().count(),
+            1,
+            "Filename should stay on one line"
+        );
+        assert!(
+            !contents.contains('\x1b'),
+            "Control characters should be escaped"
+        );
+
+        let result = check("blake3", output.path(), false, false, true, false).unwrap();
+        let control = CheckResult {
+            total: 1,
+            mismatch: 0,
+            hash_fail: 0,
+            invalid: 0,
+            unsupported: 0,
+        };
+        assert_eq!(result, control, "Escaped filename should check back");
     }
 }
