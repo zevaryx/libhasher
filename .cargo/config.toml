@@ -6,6 +6,7 @@ CC_x86_64-apple-darwin = "/opt/osxcross/bin/x86_64-apple-darwin24-clang"
 AR_x86_64-apple-darwin = "/opt/osxcross/bin/x86_64-apple-darwin24-ar"
 CC_aarch64-unknown-linux-musl = "clang"
 AR_aarch64-unknown-linux-musl = "llvm-ar"
+CFLAGS_aarch64-unknown-linux-musl = "-isystem /usr/aarch64-linux-gnu/include"
 
 
 [target.aarch64-apple-darwin]

@@ -27,6 +27,11 @@ jobs:
       - name: Run tests to validate
         run: cargo test -p hasher
 
+      - name: Install aarch64 C headers for blake3's NEON code
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends libc6-dev-arm64-cross
+
       - name: Build the hasher release
         run: |
           cargo build --release -p hasher \
