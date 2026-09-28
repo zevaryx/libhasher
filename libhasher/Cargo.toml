@@ -2,7 +2,7 @@
 name = "libhasher"
 description = "A high-level hashing library for files and text"
 readme = "README.md"
-version = "0.9.3"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/zevaryx/libhasher"
@@ -13,7 +13,7 @@ repository = "https://github.com/zevaryx/libhasher"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.104"
 blake2 = "0.10.6"
 blake3 = { version = "1.8.5", features = ["rayon", "mmap"] }
 digest = "0.10.7"
